@@ -26,6 +26,12 @@ export interface PlayerState {
   seatIndex: SeatIndex;
   color: PlayerColor;
   tokens: TokenState[];
+  /**
+   * Pity timer guaranteeing a 6 within 5 turns of having every token stuck
+   * in the yard. Set the first time that condition is observed and cleared
+   * as soon as it no longer holds (a token leaves the yard, by any means).
+   */
+  sixPity?: { targetTurn: number; turnsElapsed: number } | null;
 }
 
 export type GameStatus = "playing" | "finished";

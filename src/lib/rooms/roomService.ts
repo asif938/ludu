@@ -2,6 +2,7 @@ import { COLOR_ORDER, QUICK_TOKENS_PER_PLAYER, TOKENS_PER_PLAYER } from "@/lib/g
 import {
   applyMove,
   createInitialGameState,
+  prepareDiceRoll,
   removePlayer,
   rollDiceValue,
   startTurnRoll,
@@ -396,8 +397,9 @@ export async function rollForSeat(
       throw new RoomServiceError("GAME_NOT_STARTED", "The game has not started.");
     }
 
-    const roll = rollDiceValue();
-    const outcome = startTurnRoll(record.gameState, seatIndex, roll);
+    const prep = prepareDiceRoll(record.gameState, seatIndex);
+    const roll = prep.forcedValue ?? rollDiceValue();
+    const outcome = startTurnRoll(prep.state, seatIndex, roll);
     record.gameState = outcome.state;
     record.gameStateVersion = outcome.state.version;
     record.expiresAt = new Date(Date.now() + PLAYING_TTL_MS);

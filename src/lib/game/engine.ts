@@ -22,6 +22,62 @@ export function rollDiceValue(): number {
   return randomInt(1, 7); // 1-6 inclusive
 }
 
+/** How many of a player's own turns the yard-stuck pity timer spans. */
+const SIX_PITY_WINDOW = 5;
+
+function allTokensInYard(player: PlayerState): boolean {
+  return player.tokens.every((t) => t.status === "yard");
+}
+
+export interface DiceRollPrep {
+  state: GameState;
+  /** Non-null when this roll must come up 6 to satisfy the pity rule. */
+  forcedValue: number | null;
+}
+
+/**
+ * Tracks, per seat, a "pity" guarantee: once a player has every token stuck
+ * in the yard, they are guaranteed a 6 on one randomly chosen turn within
+ * their next 5 turns (never always the first, never a fixed count-down).
+ * Other turns for that seat roll normally, and other seats are untouched.
+ *
+ * Call this before generating the actual dice value, then use
+ * `forcedValue` in place of a random roll when it is non-null.
+ */
+export function prepareDiceRoll(state: GameState, seatIndex: number): DiceRollPrep {
+  const player = state.players.find((p) => p.seatIndex === seatIndex);
+  if (!player) return { state, forcedValue: null };
+
+  if (!allTokensInYard(player)) {
+    if (!player.sixPity) return { state, forcedValue: null };
+    return { state: withPity(state, seatIndex, null), forcedValue: null };
+  }
+
+  const pity = player.sixPity ?? {
+    targetTurn: randomInt(1, SIX_PITY_WINDOW + 1), // 1..5 inclusive
+    turnsElapsed: 0,
+  };
+  const turnsElapsed = pity.turnsElapsed + 1;
+
+  if (turnsElapsed >= pity.targetTurn) {
+    return { state: withPity(state, seatIndex, null), forcedValue: 6 };
+  }
+  return { state: withPity(state, seatIndex, { ...pity, turnsElapsed }), forcedValue: null };
+}
+
+function withPity(
+  state: GameState,
+  seatIndex: number,
+  sixPity: { targetTurn: number; turnsElapsed: number } | null,
+): GameState {
+  return {
+    ...state,
+    players: state.players.map((p) =>
+      p.seatIndex === seatIndex ? { ...p, sixPity } : p,
+    ),
+  };
+}
+
 export function createInitialGameState(
   seatIndexes: SeatIndex[],
   tokensPerPlayer: number = TOKENS_PER_PLAYER,

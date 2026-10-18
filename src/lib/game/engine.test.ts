@@ -3,6 +3,7 @@ import {
   applyMove,
   createInitialGameState,
   getLegalMoves,
+  prepareDiceRoll,
   removePlayer,
   startTurnRoll,
 } from "./engine";
@@ -198,6 +199,77 @@ describe("removePlayer", () => {
   it("rejects removing a seat that isn't in the game", () => {
     const state = createInitialGameState([0, 1]);
     expect(() => removePlayer(state, 2)).toThrow(IllegalActionError);
+  });
+});
+
+describe("prepareDiceRoll (yard pity timer)", () => {
+  it("does not force anything for a player with a token already out", () => {
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+    for (let i = 0; i < 10; i++) {
+      const prep = prepareDiceRoll(state, 0);
+      expect(prep.forcedValue).toBeNull();
+      expect(prep.state.players[0].sixPity ?? null).toBeNull();
+    }
+  });
+
+  it("guarantees a 6 within 5 turns once every token is stuck in the yard", () => {
+    let state = createInitialGameState([0, 1]);
+    let forcedOnTurn = -1;
+    for (let turn = 1; turn <= 5; turn++) {
+      const prep = prepareDiceRoll(state, 0);
+      state = prep.state;
+      if (prep.forcedValue !== null) {
+        expect(prep.forcedValue).toBe(6);
+        forcedOnTurn = turn;
+        break;
+      }
+    }
+    expect(forcedOnTurn).toBeGreaterThanOrEqual(1);
+    expect(forcedOnTurn).toBeLessThanOrEqual(5);
+  });
+
+  it("picks the forced turn randomly rather than always the first", () => {
+    const turnsSeen = new Set<number>();
+    for (let trial = 0; trial < 200; trial++) {
+      let state = createInitialGameState([0, 1]);
+      for (let turn = 1; turn <= 5; turn++) {
+        const prep = prepareDiceRoll(state, 0);
+        state = prep.state;
+        if (prep.forcedValue !== null) {
+          turnsSeen.add(turn);
+          break;
+        }
+      }
+    }
+    // Over 200 trials the forced turn should land on more than one value.
+    expect(turnsSeen.size).toBeGreaterThan(1);
+  });
+
+  it("clears the pity timer once a token leaves the yard (via the forced six)", () => {
+    let state = createInitialGameState([0, 1]);
+    let forced = false;
+    for (let turn = 1; turn <= 5 && !forced; turn++) {
+      const prep = prepareDiceRoll(state, 0);
+      state = prep.state;
+      if (prep.forcedValue === 6) {
+        forced = true;
+        const rolled = startTurnRoll(state, 0, 6);
+        const { state: moved } = applyMove(rolled.state, 0, "red-0", 6);
+        state = moved;
+      }
+    }
+    expect(forced).toBe(true);
+    expect(state.players[0].sixPity ?? null).toBeNull();
+    // Now that a token is out, further rolls are never force-corrected.
+    const after = prepareDiceRoll(state, 0);
+    expect(after.forcedValue).toBeNull();
+  });
+
+  it("never touches another seat's pity timer or rolls", () => {
+    const state = createInitialGameState([0, 1]);
+    const prep = prepareDiceRoll(state, 0);
+    expect(prep.state.players[1].sixPity ?? null).toBeNull();
   });
 });
 
