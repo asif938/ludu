@@ -22,7 +22,10 @@ export function rollDiceValue(): number {
   return randomInt(1, 7); // 1-6 inclusive
 }
 
-export function createInitialGameState(seatIndexes: SeatIndex[]): GameState {
+export function createInitialGameState(
+  seatIndexes: SeatIndex[],
+  tokensPerPlayer: number = TOKENS_PER_PLAYER,
+): GameState {
   if (seatIndexes.length < 2 || seatIndexes.length > 4) {
     throw new IllegalActionError("A game requires between 2 and 4 seats.");
   }
@@ -30,7 +33,7 @@ export function createInitialGameState(seatIndexes: SeatIndex[]): GameState {
   const players: PlayerState[] = turnOrder.map((seatIndex) => {
     const color = colorForSeat(seatIndex);
     const tokens: TokenState[] = Array.from(
-      { length: TOKENS_PER_PLAYER },
+      { length: tokensPerPlayer },
       (_, i) => ({
         id: `${color}-${i}`,
         color,

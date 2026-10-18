@@ -1,7 +1,11 @@
 import type { GameState, PlayerColor } from "@/lib/game/types";
 
 export type RoomStatus = "waiting" | "playing" | "finished";
-export type SeatKind = "local" | "remote";
+export type SeatKind = "local" | "remote" | "bot";
+/** How many of the 4 physical seats are in play for this match. A 2-seat
+ * room uses the diagonal pair (0, 2) so two players sit opposite each
+ * other, matching how a real board is played 1v1. See SEAT_LAYOUTS. */
+export type RoomSize = 2 | 3 | 4;
 
 export interface SeatRecord {
   seatIndex: number;
@@ -21,6 +25,8 @@ export interface RoomRecord {
   status: RoomStatus;
   hostDeviceGroupId: string;
   seats: SeatRecord[];
+  roomSize: RoomSize;
+  quickMode: boolean;
   roomVersion: number;
   gameState: GameState | null;
   gameStateVersion: number;
@@ -44,6 +50,8 @@ export interface PublicRoom {
   roomId: string;
   status: RoomStatus;
   roomVersion: number;
+  roomSize: RoomSize;
+  quickMode: boolean;
   seats: PublicSeat[];
   occupiedCount: number;
   canJoin: boolean;

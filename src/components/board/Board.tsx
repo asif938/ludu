@@ -45,9 +45,9 @@ export function Board({
 
     const STACK_OFFSETS = [
       [0, 0],
-      [0.22, 0],
-      [0, 0.22],
-      [0.22, 0.22],
+      [0.26, 0],
+      [0, 0.26],
+      [0.26, 0.26],
     ];
 
     const result: PositionedToken[] = [];
@@ -64,7 +64,7 @@ export function Board({
   return (
     <svg
       viewBox={`0 0 ${GRID_SIZE} ${GRID_SIZE}`}
-      className="aspect-square w-full max-w-[min(90vw,560px)] touch-none select-none rounded-xl border bg-card shadow-sm"
+      className="aspect-square w-full min-w-0 max-w-[560px] flex-1 touch-none select-none rounded-xl border bg-card shadow-sm"
       role="img"
       aria-label="Ludo board"
     >
@@ -168,22 +168,27 @@ export function Board({
               <circle
                 cx={0.5}
                 cy={0.5}
-                r={0.42}
+                r={0.52}
                 fill="none"
                 stroke={PLAYER_COLOR_STYLES[token.color].hex}
-                strokeWidth={0.08}
+                strokeWidth={0.09}
                 className="motion-safe:animate-pulse"
               />
+            )}
+            {clickable && (
+              // Invisible, larger-than-the-dot hit area so the token stays
+              // easy to tap on small screens without the visual dot
+              // overlapping its neighbors too much.
+              <circle cx={0.5} cy={0.5} r={0.5} fill="transparent" className="cursor-pointer" onClick={() => onTokenClick(token.id)} />
             )}
             <circle
               cx={0.5}
               cy={0.5}
-              r={0.32}
+              r={0.4}
               fill={PLAYER_COLOR_STYLES[token.color].hex}
               stroke="white"
-              strokeWidth={0.06}
-              className={clickable ? "cursor-pointer" : undefined}
-              onClick={clickable ? () => onTokenClick(token.id) : undefined}
+              strokeWidth={0.07}
+              className={clickable ? "pointer-events-none" : undefined}
             />
           </g>
         );

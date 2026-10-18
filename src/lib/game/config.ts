@@ -30,6 +30,10 @@ export const HOME_STRETCH_LENGTH = 6; // progress 51..56 (56 is the final cell)
 export const LAST_MAIN_PATH_PROGRESS = 50; // last step before entering home stretch
 export const FINISH_PROGRESS = 56;
 export const TOKENS_PER_PLAYER = 4;
+/** Quick/test-mode token count: fewer tokens per player so a full match
+ * (release, advance, capture, win) finishes in a couple of minutes while
+ * exercising every rule path. */
+export const QUICK_TOKENS_PER_PLAYER = 2;
 
 /** Entry square (absolute shared-track index) for each color. */
 export const START_OFFSET: Record<PlayerColor, number> = {

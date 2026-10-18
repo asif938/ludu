@@ -45,13 +45,50 @@ function.
 
 ### Seats, not accounts
 
-There's no login. A "seat" (0-3, one per color) is claimed either:
+There's no login. A "seat" (0-3, one per color) is claimed one of three ways:
 
-- at **room creation**, when the host picks how many local players (1-3)
+- at **room creation**, when the host picks how many local players (1-4)
   share their device — those seats get a shared `deviceGroupId` and one
-  secret seat token each, or
+  secret seat token each,
+- as a **computer-controlled seat**, filled automatically when the host
+  picks "Vs computer" or "Quick test" — see below, or
 - via the **invite link**, where a remote joiner claims exactly one open
   seat.
+
+### Room size and seat layout
+
+A room has 2, 3, or 4 seats (`roomSize`, chosen at creation). The 4 colors
+are fixed to physical seat slots 0-3 (red/green/yellow/blue), but which
+*slots* are in play depends on room size — see `SEAT_LAYOUTS` in
+`src/lib/rooms/roomService.ts`:
+
+- **2 seats** → slots `[0, 2]` (red, yellow) — diagonally opposite corners
+  of the board, matching how a real 1v1 Ludo match is played.
+- **3 seats** → slots `[0, 1, 2]`.
+- **4 seats** → all slots.
+
+### Computer-controlled seats
+
+Picking "Vs computer" (or the one-click "Quick test vs computer" on the
+home page) fills the remaining seats with `kind: "bot"`. Bots have no
+credential and are always reported as connected. The server drives every
+consecutive bot turn itself (`driveBotTurns` in `server/socket/index.ts`):
+it calls the same `rollForSeat`/`moveForSeat` functions a human action
+would, broadcasts the same events, and only stops when a human seat is
+next or the match ends. The bot's move choice (`src/lib/game/bot.ts`) is a
+simple heuristic — finish a token, then capture an opponent, then release
+from the yard, then advance the furthest-along token — picked only from
+the engine's own legal-move list, so it can never produce an illegal move.
+
+### Quick mode
+
+Checking "Quick match" at room creation (or using "Quick test vs
+computer") sets `quickMode: true` on the room, which gives each player 2
+tokens instead of 4 (`QUICK_TOKENS_PER_PLAYER` in `src/lib/game/config.ts`)
+and speeds up the bots' own turn pacing. Every rule — dice rolls, capture,
+exact-roll-to-finish, win detection — is unchanged; only the token count
+and bot delay are scaled down, so a full match finishes in roughly a
+minute instead of being a 20+ minute game.
 
 The raw seat token is returned to the client exactly once and stored in that
 browser's `localStorage`; the server only ever stores its SHA-256 hash. A
@@ -129,6 +166,14 @@ one, `socket.io-client` is already a dependency you can reuse for it.
   - Room creation only asks the host for *one* display name (per the spec).
     Extra local seats are auto-labeled "Name (P2)", "Name (P3)" rather than
     prompting for each — there's no in-lobby rename for the MVP.
+  - The dice visually floats to the current player's board corner
+    (`yardCenterPercent` in `src/lib/ui/boardLayout.ts`) rather than
+    staying fixed — this is the "current turn" indicator together with the
+    pulsing turn banner and player-panel highlight in `GameScreen.tsx`.
+  - "Vs computer" mode is always 1 human + bots filling the rest of the
+    chosen room size — there's no UI for mixing multiple humans with bots
+    in the same room (you can still do that indirectly: create a normal
+    "with others" room, since bots are only offered in the dedicated mode).
 
 ## Deployment
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, LogOut, Share2, Smartphone, Wifi, WifiOff } from "lucide-react";
+import { Bot, Check, Copy, LogOut, Share2, Smartphone, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,9 +58,14 @@ export function Lobby({
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-4 p-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
+          <CardTitle className="flex items-center justify-between gap-2">
             <span>Room {room.roomId}</span>
-            <Badge variant="secondary">{occupiedCount} / 4 players</Badge>
+            <div className="flex items-center gap-1.5">
+              {room.quickMode && <Badge variant="outline">Quick match</Badge>}
+              <Badge variant="secondary">
+                {occupiedCount} / {room.roomSize} players
+              </Badge>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 sm:flex-row">
@@ -106,20 +111,26 @@ export function Lobby({
                     <span className="flex items-center gap-1">
                       {seat.kind === "local" ? (
                         <Smartphone className="size-3.5" />
+                      ) : seat.kind === "bot" ? (
+                        <Bot className="size-3.5" />
                       ) : (
                         <Wifi className="size-3.5" />
                       )}
                       {seat.kind}
                     </span>
-                    <Separator orientation="vertical" className="h-3" />
-                    <span className="flex items-center gap-1">
-                      {seat.connected ? (
-                        <Wifi className="size-3.5 text-emerald-500" />
-                      ) : (
-                        <WifiOff className="size-3.5 text-muted-foreground" />
-                      )}
-                      {seat.connected ? "Connected" : "Disconnected"}
-                    </span>
+                    {seat.kind !== "bot" && (
+                      <>
+                        <Separator orientation="vertical" className="h-3" />
+                        <span className="flex items-center gap-1">
+                          {seat.connected ? (
+                            <Wifi className="size-3.5 text-emerald-500" />
+                          ) : (
+                            <WifiOff className="size-3.5 text-muted-foreground" />
+                          )}
+                          {seat.connected ? "Connected" : "Disconnected"}
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

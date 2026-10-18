@@ -109,6 +109,22 @@ export function tokenYardSlotIndex(tokenId: string): number {
   return Number(tokenId.split("-")[1] ?? 0);
 }
 
+/**
+ * Where the dice should sit relative to the board on small screens, driven
+ * by the active player's own yard corner rather than a fixed spot: above
+ * the board for a top-row color, below it for a bottom-row color, and
+ * left/right-aligned to match that color's column.
+ */
+export function diceAnchorForColor(
+  color: PlayerColor,
+): { vertical: "above" | "below"; horizontal: "left" | "right" } {
+  const bounds = YARD_BOUNDS[color];
+  return {
+    vertical: bounds.row === 0 ? "above" : "below",
+    horizontal: bounds.col === 0 ? "left" : "right",
+  };
+}
+
 /** Grid coordinate for a token in its current state — the single place
  * Board.tsx asks "where does this token render". */
 export function tokenCoordinate(token: TokenState): Cell {

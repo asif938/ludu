@@ -1,6 +1,6 @@
 "use client";
 
-import { WifiOff } from "lucide-react";
+import { Bot, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PLAYER_COLOR_STYLES } from "@/lib/ui/playerColors";
 import type { GameState } from "@/lib/game/types";
@@ -26,22 +26,27 @@ export function PlayerPanel({
         return (
           <div
             key={player.seatIndex}
-            className={`flex items-center justify-between rounded-lg border p-2.5 transition-colors ${
-              isCurrent ? `${style.border} bg-accent` : "border-border"
+            className={`flex items-center justify-between rounded-lg border-2 p-2.5 transition-colors ${
+              isCurrent ? `${style.border} bg-accent` : "border-transparent"
             }`}
           >
             <div className="flex items-center gap-2">
-              <span className={`size-3 rounded-full ${style.bg}`} />
+              <span className={`size-3 rounded-full ${style.bg} ${isCurrent ? "motion-safe:animate-pulse" : ""}`} />
               <span className="text-sm font-medium">{seat?.displayName ?? `Seat ${player.seatIndex + 1}`}</span>
               {seat?.kind === "local" && (
                 <Badge variant="outline" className="text-[10px]">
                   local
                 </Badge>
               )}
-              {seat && !seat.connected && <WifiOff className="size-3.5 text-muted-foreground" />}
+              {seat?.kind === "bot" && <Bot className="size-3.5 text-muted-foreground" />}
+              {seat && seat.kind !== "bot" && !seat.connected && (
+                <WifiOff className="size-3.5 text-muted-foreground" />
+              )}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{finishedCount}/4 home</span>
+              <span>
+                {finishedCount}/{player.tokens.length} home
+              </span>
               {isCurrent && <Badge className={style.bg}>Turn</Badge>}
             </div>
           </div>

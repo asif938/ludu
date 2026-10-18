@@ -6,10 +6,18 @@ const displayName = z
   .min(1, "Display name is required.")
   .max(20, "Display name must be 20 characters or fewer.");
 
-export const createRoomSchema = z.object({
-  displayName,
-  localPlayerCount: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-});
+export const createRoomSchema = z
+  .object({
+    displayName,
+    localPlayerCount: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+    roomSize: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+    botCount: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+    quickMode: z.boolean(),
+  })
+  .refine((v) => v.localPlayerCount + v.botCount <= v.roomSize, {
+    message: "Too many players for the selected room size.",
+    path: ["botCount"],
+  });
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 
 export const joinRoomSchema = z.object({

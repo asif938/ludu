@@ -1,4 +1,4 @@
-import { COLOR_ORDER } from "@/lib/game/config";
+import { COLOR_ORDER, QUICK_TOKENS_PER_PLAYER, TOKENS_PER_PLAYER } from "@/lib/game/config";
 import {
   applyMove,
   createInitialGameState,
@@ -21,6 +21,7 @@ import type {
   PublicRoom,
   PublicSeat,
   RoomRecord,
+  RoomSize,
   SeatCredential,
   SeatRecord,
 } from "./types";
@@ -29,6 +30,22 @@ const TOTAL_SEATS = 4;
 const WAITING_TTL_MS = 2 * 60 * 60 * 1000;
 const PLAYING_TTL_MS = 12 * 60 * 60 * 1000;
 const FINISHED_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Which of the 4 physical (color-fixed) seat slots are in play for a given
+ * room size. A 2-player room deliberately skips seats 1/3 so the two
+ * occupied seats (red, yellow) sit diagonally opposite on the board,
+ * matching how 1v1 Ludo is actually played.
+ */
+export const SEAT_LAYOUTS: Record<RoomSize, number[]> = {
+  2: [0, 2],
+  3: [0, 1, 2],
+  4: [0, 1, 2, 3],
+};
+
+function enabledSeatIndexes(roomSize: RoomSize): number[] {
+  return SEAT_LAYOUTS[roomSize];
+}
 
 function emptySeats(): SeatRecord[] {
   return Array.from({ length: TOTAL_SEATS }, (_, seatIndex) => ({
@@ -58,14 +75,18 @@ export function toPublicSeat(seat: SeatRecord): PublicSeat {
 }
 
 export function toPublicRoom(record: RoomRecord): PublicRoom {
-  const occupiedCount = record.seats.filter((s) => s.occupied).length;
+  const enabled = enabledSeatIndexes(record.roomSize);
+  const seats = record.seats.filter((s) => enabled.includes(s.seatIndex));
+  const occupiedCount = seats.filter((s) => s.occupied).length;
   return {
     roomId: record.roomId,
     status: record.status,
     roomVersion: record.roomVersion,
-    seats: record.seats.map(toPublicSeat),
+    roomSize: record.roomSize,
+    quickMode: record.quickMode,
+    seats: seats.map(toPublicSeat),
     occupiedCount,
-    canJoin: record.status === "waiting" && occupiedCount < TOTAL_SEATS,
+    canJoin: record.status === "waiting" && seats.some((s) => !s.occupied),
   };
 }
 
@@ -92,20 +113,43 @@ export async function getPublicRoom(roomId: string): Promise<PublicRoom | null> 
   return record ? toPublicRoom(record) : null;
 }
 
+function botDisplayName(color: string): string {
+  return `Computer (${color.charAt(0).toUpperCase()}${color.slice(1)})`;
+}
+
 export async function createRoom(
   displayName: string,
-  localPlayerCount: 1 | 2 | 3,
+  localPlayerCount: 1 | 2 | 3 | 4,
+  options: {
+    roomSize?: RoomSize;
+    botCount?: 0 | 1 | 2 | 3;
+    quickMode?: boolean;
+  } = {},
 ): Promise<JoinResult> {
+  const roomSize = options.roomSize ?? 4;
+  const botCount = options.botCount ?? 0;
+  const quickMode = options.quickMode ?? false;
+  const enabled = enabledSeatIndexes(roomSize);
+
+  if (localPlayerCount + botCount > enabled.length) {
+    throw new RoomServiceError(
+      "VALIDATION_ERROR",
+      "Too many players for the selected room size.",
+    );
+  }
+
   const roomId = createRoomId();
   const deviceGroupId = createDeviceGroupId();
   const seats = emptySeats();
   const credentials: SeatCredential[] = [];
 
-  for (let i = 0; i < localPlayerCount; i++) {
+  let slot = 0;
+  for (let i = 0; i < localPlayerCount; i++, slot++) {
+    const seatIndex = enabled[slot];
     const seatToken = createSeatToken();
-    credentials.push({ seatIndex: i, seatToken });
-    seats[i] = {
-      ...seats[i],
+    credentials.push({ seatIndex, seatToken });
+    seats[seatIndex] = {
+      ...seats[seatIndex],
       occupied: true,
       displayName: i === 0 ? displayName : `${displayName} (P${i + 1})`,
       kind: "local",
@@ -116,6 +160,21 @@ export async function createRoom(
       lastSeenAt: new Date(),
     };
   }
+  for (let i = 0; i < botCount; i++, slot++) {
+    const seatIndex = enabled[slot];
+    seats[seatIndex] = {
+      ...seats[seatIndex],
+      occupied: true,
+      displayName: botDisplayName(seats[seatIndex].color),
+      kind: "bot",
+      deviceGroupId: null,
+      seatTokenHash: null,
+      isHost: false,
+      // Bots are always "connected" — there is no device to lose.
+      connected: true,
+      lastSeenAt: new Date(),
+    };
+  }
 
   const now = new Date();
   const record: RoomRecord = {
@@ -123,6 +182,8 @@ export async function createRoom(
     status: "waiting",
     hostDeviceGroupId: deviceGroupId,
     seats,
+    roomSize,
+    quickMode,
     roomVersion: 1,
     gameState: null,
     gameStateVersion: 0,
@@ -153,7 +214,8 @@ export async function joinRoom(
           : "This match has already finished.",
       );
     }
-    const seat = record.seats.find((s) => !s.occupied);
+    const enabled = enabledSeatIndexes(record.roomSize);
+    const seat = record.seats.find((s) => enabled.includes(s.seatIndex) && !s.occupied);
     if (!seat) {
       throw new RoomServiceError("ROOM_FULL", "This room is full.");
     }
@@ -291,8 +353,9 @@ export async function startGame(
         "This game has already started.",
       );
     }
+    const enabled = enabledSeatIndexes(record.roomSize);
     const occupiedSeatIndexes = record.seats
-      .filter((s) => s.occupied)
+      .filter((s) => enabled.includes(s.seatIndex) && s.occupied)
       .map((s) => s.seatIndex as SeatIndex);
     if (occupiedSeatIndexes.length < 2) {
       throw new RoomServiceError(
@@ -302,7 +365,8 @@ export async function startGame(
     }
 
     record.status = "playing";
-    record.gameState = createInitialGameState(occupiedSeatIndexes);
+    const tokensPerPlayer = record.quickMode ? QUICK_TOKENS_PER_PLAYER : TOKENS_PER_PLAYER;
+    record.gameState = createInitialGameState(occupiedSeatIndexes, tokensPerPlayer);
     record.gameStateVersion = record.gameState.version;
     record.roomVersion += 1;
     record.expiresAt = new Date(Date.now() + PLAYING_TTL_MS);
@@ -400,4 +464,18 @@ export async function moveForSeat(
     await save(record);
     return { record, events };
   });
+}
+
+/**
+ * Read-only snapshot of a room, for the server-side bot driver
+ * (server/socket/bot.ts). It needs the *raw* record (gameState + seat
+ * kinds), not the client-safe PublicRoom, to decide whose turn it is and
+ * whether that seat is computer-controlled.
+ */
+export async function getRoomSnapshot(roomId: string): Promise<RoomRecord | null> {
+  return roomMutex.run(roomId, () => getOrLoadRoom(roomId));
+}
+
+export function isBotSeat(record: RoomRecord, seatIndex: number): boolean {
+  return record.seats.find((s) => s.seatIndex === seatIndex)?.kind === "bot";
 }

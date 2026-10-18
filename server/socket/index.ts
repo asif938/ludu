@@ -18,6 +18,7 @@ import { RoomServiceError } from "@/lib/rooms/errors";
 import {
   authenticateSeats,
   getPublicRoom,
+  getRoomSnapshot,
   leaveRoom,
   moveForSeat,
   rollForSeat,
@@ -27,6 +28,8 @@ import {
 } from "@/lib/rooms/roomService";
 import type { PublicRoom } from "@/lib/rooms/types";
 import { roomStore } from "@/lib/rooms/store";
+import { getLegalMoves } from "@/lib/game/engine";
+import { chooseBotMove } from "@/lib/game/bot";
 
 interface SocketData {
   roomId?: string;
@@ -45,7 +48,94 @@ function buildRoomUpdatedPayload(room: PublicRoom) {
     hostSeatIndex: hostSeat?.seatIndex ?? 0,
     seats: room.seats,
     roomVersion: room.roomVersion,
+    roomSize: room.roomSize,
+    quickMode: room.quickMode,
   };
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const BOT_ROLL_DELAY_MS = 700;
+const BOT_MOVE_DELAY_MS = 650;
+/** Quick-mode matches speed bot turns up too, so a full test match against
+ * computer opponents takes seconds, not minutes. */
+const QUICK_MODE_DELAY_SCALE = 0.3;
+
+/** Drives every consecutive computer-controlled turn for a room, one seat
+ * at a time, until a human seat is up or the match ends. Re-entrant-safe:
+ * `botLoopRunning` ensures only one loop per room runs at once, since this
+ * is called from several socket handlers (start/roll/move/reconnect) that
+ * can all observe "the next seat is a bot" at nearly the same time. */
+const botLoopRunning = new Set<string>();
+
+async function driveBotTurns(io: Server, roomId: string): Promise<void> {
+  if (botLoopRunning.has(roomId)) return;
+  botLoopRunning.add(roomId);
+  try {
+    for (;;) {
+      const record = await getRoomSnapshot(roomId);
+      if (!record || record.status !== "playing" || !record.gameState) return;
+      const state = record.gameState;
+      const seatIndex = state.turnOrder[state.currentTurnIndex];
+      const seat = record.seats.find((s) => s.seatIndex === seatIndex);
+      if (!seat || seat.kind !== "bot") return;
+
+      const scale = record.quickMode ? QUICK_MODE_DELAY_SCALE : 1;
+
+      if (state.pendingRoll === null) {
+        await wait(BOT_ROLL_DELAY_MS * scale);
+        const result = await rollForSeat(roomId, seatIndex);
+        io.to(roomChannel(roomId)).emit(ServerEvents.DiceRolled, {
+          roomId,
+          seatIndex,
+          roll: result.roll,
+          legalTokenIds: result.legalTokenIds,
+        });
+        io.to(roomChannel(roomId)).emit(ServerEvents.GameState, {
+          roomId,
+          state: result.record.gameState,
+        });
+        if (result.record.gameState?.status !== "playing") return;
+        continue;
+      }
+
+      await wait(BOT_MOVE_DELAY_MS * scale);
+      const legalMoves = getLegalMoves(state, seatIndex, state.pendingRoll);
+      if (legalMoves.length === 0) return; // defensive; the engine auto-skips empty-move rolls
+      const chosen = chooseBotMove(state, seatIndex, legalMoves);
+      const { record: movedRecord, events } = await moveForSeat(
+        roomId,
+        seatIndex,
+        chosen.tokenId,
+        state.pendingRoll,
+      );
+      for (const event of events) {
+        io.to(roomChannel(roomId)).emit(ServerEvents.TokenMoved, {
+          roomId,
+          seatIndex,
+          tokenId: chosen.tokenId,
+          event,
+        });
+      }
+      io.to(roomChannel(roomId)).emit(ServerEvents.GameState, {
+        roomId,
+        state: movedRecord.gameState,
+      });
+      if (movedRecord.gameState?.status === "finished") {
+        io.to(roomChannel(roomId)).emit(ServerEvents.Finished, {
+          roomId,
+          winnerSeatIndex: movedRecord.gameState.winnerSeatIndex,
+        });
+        return;
+      }
+    }
+  } catch (err) {
+    console.error("[bot] turn failed", err);
+  } finally {
+    botLoopRunning.delete(roomId);
+  }
 }
 
 function emitError(socket: Socket, err: unknown) {
@@ -106,6 +196,7 @@ export function attachSocketServer(httpServer: HttpServer): Server {
 
         if (record.status === "playing" && record.gameState) {
           socket.emit(ServerEvents.GameState, { roomId, state: record.gameState });
+          void driveBotTurns(io, roomId);
         }
       } catch (err) {
         emitError(socket, err);
@@ -173,6 +264,7 @@ export function attachSocketServer(httpServer: HttpServer): Server {
           roomId,
           state: record.gameState,
         });
+        void driveBotTurns(io, roomId);
       } catch (err) {
         emitError(socket, err);
       }
@@ -208,6 +300,7 @@ export function attachSocketServer(httpServer: HttpServer): Server {
           roomId,
           state: result.record.gameState,
         });
+        void driveBotTurns(io, roomId);
       } catch (err) {
         emitError(socket, err);
       }
@@ -250,6 +343,8 @@ export function attachSocketServer(httpServer: HttpServer): Server {
             roomId,
             winnerSeatIndex: record.gameState.winnerSeatIndex,
           });
+        } else {
+          void driveBotTurns(io, roomId);
         }
       } catch (err) {
         emitError(socket, err);

@@ -52,6 +52,8 @@ export interface RoomUpdatedPayload {
   hostSeatIndex: number;
   seats: PublicSeat[];
   roomVersion: number;
+  roomSize: 2 | 3 | 4;
+  quickMode: boolean;
 }
 
 export interface GameStatePayload {

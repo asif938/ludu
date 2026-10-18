@@ -116,7 +116,7 @@ export function JoinForm({
             </CardTitle>
             <CardDescription>
               {room.status === "waiting"
-                ? "All 4 seats are taken. Ask the host for a different room."
+                ? "All seats are taken. Ask the host for a different room."
                 : "You can't join this room right now."}
             </CardDescription>
           </CardHeader>
@@ -131,7 +131,7 @@ export function JoinForm({
         <CardHeader>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Users className="size-4" />
-            {room.occupiedCount} / 4 seats taken
+            {room.occupiedCount} / {room.roomSize} seats taken
           </div>
           <CardTitle>Join room {roomId}</CardTitle>
           <CardDescription>Enter a display name to join the match.</CardDescription>

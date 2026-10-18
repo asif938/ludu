@@ -1,8 +1,9 @@
-import { Dices, Smartphone, Users, Wifi } from "lucide-react";
+import { Bot, Dices, Smartphone, Users, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateRoomDialog } from "@/components/home/CreateRoomDialog";
 import { JoinRoomDialog } from "@/components/home/JoinRoomDialog";
+import { QuickTestButton } from "@/components/home/QuickTestButton";
 
 export default function HomePage() {
   return (
@@ -33,15 +34,25 @@ export default function HomePage() {
                 Join Room
               </Button>
             </JoinRoomDialog>
+            <CreateRoomDialog defaultMode="vs-computer">
+              <Button size="lg" variant="outline" className="h-12 min-w-48 text-base">
+                <Bot className="size-5" />
+                Play vs Computer
+              </Button>
+            </CreateRoomDialog>
           </div>
-          <CreateRoomDialog>
-            <button className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline">
-              or create a room with a custom setup
-            </button>
-          </CreateRoomDialog>
+          <div className="flex flex-col items-center gap-1 sm:flex-row sm:gap-3">
+            <CreateRoomDialog>
+              <button className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline">
+                or create a room with a custom setup
+              </button>
+            </CreateRoomDialog>
+            <span className="hidden text-muted-foreground sm:inline">·</span>
+            <QuickTestButton />
+          </div>
         </header>
 
-        <section className="mt-16 grid gap-4 sm:grid-cols-2">
+        <section className="mt-16 grid gap-4 sm:grid-cols-3">
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -50,7 +61,7 @@ export default function HomePage() {
               </div>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              Hand the phone around. Two or three people can share one
+              Hand the phone around. Up to four people can share one
               device, each with their own color and their own turn, all on
               the same board.
             </CardContent>
@@ -66,6 +77,18 @@ export default function HomePage() {
               Share an invitation link with anyone, anywhere. They pick a
               name and join instantly — no account required — and see the
               exact same board you do.
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Bot className="size-5 text-violet-500" />
+                <CardTitle>Vs computer</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              No one around? Play against computer-controlled opponents, or
+              jump into a quick test match to try out the rules in minutes.
             </CardContent>
           </Card>
         </section>

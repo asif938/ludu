@@ -50,7 +50,7 @@ export function Dice({
   onRoll: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2 lg:flex-row lg:gap-3">
       <button
         type="button"
         onClick={onRoll}

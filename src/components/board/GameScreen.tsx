@@ -22,6 +22,8 @@ import { PlayerPanel } from "./PlayerPanel";
 import { GameOverDialog } from "./GameOverDialog";
 import type { GameState } from "@/lib/game/types";
 import type { DiceRolledPayload, RoomUpdatedPayload } from "@/lib/socket/events";
+import { diceAnchorForColor } from "@/lib/ui/boardLayout";
+import { PLAYER_COLOR_STYLES } from "@/lib/ui/playerColors";
 
 export function GameScreen({
   room,
@@ -92,29 +94,70 @@ export function GameScreen({
       ? gameState.players.find((p) => p.seatIndex === gameState.winnerSeatIndex)?.color ?? null
       : null;
 
+  const currentPlayer = gameState.players.find((p) => p.seatIndex === currentSeat);
+  const currentColor = currentPlayer?.color ?? "red";
+  const currentStyle = PLAYER_COLOR_STYLES[currentColor];
+  const currentName = room.seats.find((s) => s.seatIndex === currentSeat)?.displayName ?? "the other player";
+  const diceAnchor = diceAnchorForColor(currentColor);
+  const diceBoxClass = `items-center justify-center rounded-xl border-2 bg-card p-2 shadow-sm transition-colors ${currentStyle.border}`;
+  const diceEl = (
+    <Dice
+      value={gameState.pendingRoll ?? gameState.lastRoll}
+      rollNonce={gameState.version}
+      canRoll={canRoll}
+      onRoll={handleRoll}
+    />
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-4 lg:flex-row lg:items-start">
+    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-4 p-4 lg:flex-row lg:items-start lg:justify-start">
       <div className="flex flex-1 flex-col items-center gap-4">
-        <Board
-          gameState={gameState}
-          legalTokenIds={legalTokenIds}
-          myTokenIds={myTokenIds}
-          onTokenClick={handleTokenClick}
-        />
-        <Dice
-          value={gameState.pendingRoll ?? gameState.lastRoll}
-          rollNonce={gameState.version}
-          canRoll={canRoll}
-          onRoll={handleRoll}
-        />
+        {gameState.status === "playing" && (
+          <div
+            className={`flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm font-semibold transition-colors ${currentStyle.border} ${currentStyle.text}`}
+          >
+            <span className={`size-2.5 rounded-full ${currentStyle.bg} motion-safe:animate-pulse`} />
+            {isMyTurn ? "Your turn!" : `${currentName}'s turn`}
+          </div>
+        )}
+
+        <div className="flex w-full max-w-[min(96vw,680px)] flex-col items-center gap-2 lg:flex-row lg:justify-center lg:gap-3">
+          {gameState.status === "playing" && diceAnchor.vertical === "above" && (
+            <div
+              className={`flex w-full lg:hidden ${diceAnchor.horizontal === "right" ? "justify-end" : "justify-start"}`}
+            >
+              <div className={`flex ${diceBoxClass}`}>{diceEl}</div>
+            </div>
+          )}
+
+          <Board
+            gameState={gameState}
+            legalTokenIds={legalTokenIds}
+            myTokenIds={myTokenIds}
+            onTokenClick={handleTokenClick}
+          />
+
+          {gameState.status === "playing" && diceAnchor.vertical === "below" && (
+            <div
+              className={`flex w-full lg:hidden ${diceAnchor.horizontal === "right" ? "justify-end" : "justify-start"}`}
+            >
+              <div className={`flex ${diceBoxClass}`}>{diceEl}</div>
+            </div>
+          )}
+
+          {gameState.status === "playing" && (
+            <div className={`hidden shrink-0 lg:flex ${diceBoxClass}`}>{diceEl}</div>
+          )}
+        </div>
+
         <p className="text-center text-sm text-muted-foreground" aria-live="polite">
           {gameState.status === "finished"
             ? "Match finished."
             : isMyTurn
               ? gameState.pendingRoll === null
-                ? "Your turn — roll the dice."
+                ? "Roll the dice."
                 : "Pick a highlighted token to move."
-              : `Waiting for ${room.seats.find((s) => s.seatIndex === currentSeat)?.displayName ?? "the other player"}…`}
+              : `Waiting for ${currentName}…`}
         </p>
       </div>
 
