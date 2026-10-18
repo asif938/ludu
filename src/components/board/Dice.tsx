@@ -41,6 +41,7 @@ export function Dice({
   rollNonce,
   canRoll,
   onRoll,
+  compact = false,
 }: {
   value: number | null;
   /** Changes on every roll (even if the value repeats) so the pop
@@ -48,22 +49,28 @@ export function Dice({
   rollNonce: number;
   canRoll: boolean;
   onRoll: () => void;
+  /** Smaller die, no secondary "Roll dice" button — used where space is
+   * tight, like the small-screen corner-anchored dice. */
+  compact?: boolean;
 }) {
+  const buttonSize = compact ? "size-11" : "size-16";
+  const svgSize = compact ? "size-8" : "size-12";
+
   return (
-    <div className="flex flex-col items-center gap-2 lg:flex-row lg:gap-3">
+    <div className={`flex flex-col items-center gap-2 ${compact ? "" : "lg:flex-row lg:gap-3"}`}>
       <button
         type="button"
         onClick={onRoll}
         disabled={!canRoll}
         aria-label={value ? `Dice shows ${value}` : "Roll the dice"}
-        className={`flex size-16 items-center justify-center rounded-xl border-2 bg-card shadow-sm transition-transform motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`flex ${buttonSize} items-center justify-center rounded-xl border-2 bg-card shadow-sm transition-transform motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 ${
           canRoll ? "cursor-pointer border-primary hover:scale-105" : "border-border"
         }`}
       >
         <svg
           key={rollNonce}
           viewBox="0 0 100 100"
-          className="size-12 motion-safe:[animation:dice-pop_320ms_ease]"
+          className={`${svgSize} motion-safe:[animation:dice-pop_320ms_ease]`}
         >
           {value !== null &&
             DOT_POSITIONS[value].map(([cx, cy], i) => (
@@ -76,9 +83,11 @@ export function Dice({
           )}
         </svg>
       </button>
-      <Button size="sm" variant={canRoll ? "default" : "outline"} disabled={!canRoll} onClick={onRoll}>
-        Roll dice
-      </Button>
+      {!compact && (
+        <Button size="sm" variant={canRoll ? "default" : "outline"} disabled={!canRoll} onClick={onRoll}>
+          Roll dice
+        </Button>
+      )}
     </div>
   );
 }

@@ -64,6 +64,7 @@ export type GameEvent =
     }
   | { type: "finished-token"; seatIndex: SeatIndex; tokenId: string }
   | { type: "turn-skipped"; seatIndex: SeatIndex }
+  | { type: "player-removed"; seatIndex: SeatIndex }
   | { type: "won"; seatIndex: SeatIndex };
 
 export interface LegalMove {

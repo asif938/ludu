@@ -141,6 +141,34 @@ already-started error paths, and reconnect-with-stored-credential). There
 is no automated integration-test suite for the socket layer yet — if you add
 one, `socket.io-client` is already a dependency you can reuse for it.
 
+### Mobile match layout
+
+On small screens the board stays in one fixed, vertically-centered spot —
+it never shifts when the dice is rolled, a token moves, or the turn
+changes. The dice instead floats *outside* the board's own box (not
+overlapping it), anchored above/below and left/right to match the active
+color's actual board corner (`diceAnchorForColor` in
+`src/lib/ui/boardLayout.ts`), using absolute positioning so it never
+participates in layout flow and can't push the board around. The
+always-visible side panel (player list + leave button) that `lg:` screens
+show inline is hidden on mobile and replaced by a fixed bottom "Menu"
+button (`MobileMatchMenu.tsx`) that opens the same player list and leave
+action in a dialog instead of permanently occupying board space.
+
+### Removing a player mid-match
+
+The host can remove any other seat from an in-progress match (player
+panel / mobile menu → the small "remove" icon next to a row), behind an
+AlertDialog confirmation. `removePlayer` in `src/lib/game/engine.ts` strips
+that seat (and its tokens) out of `players`/`turnOrder` and recomputes
+whose turn it is; if that leaves exactly one player, they're declared the
+winner immediately rather than "playing" alone. A removed seat's tokens
+simply stop existing in game state, so they can't be rendered, selected,
+or acted on, and any stale action from that seat is rejected by the
+engine's existing turn-ownership checks (no extra plumbing needed). Only
+the host can remove someone, and not their own seat — they'd use "Leave
+match" for that.
+
 ## Known limitations (documented by design)
 
 - **Single server instance.** The in-memory room store

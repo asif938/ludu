@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyMove, createInitialGameState, getLegalMoves, startTurnRoll } from "./engine";
+import {
+  applyMove,
+  createInitialGameState,
+  getLegalMoves,
+  removePlayer,
+  startTurnRoll,
+} from "./engine";
 import { FINISH_PROGRESS, LAST_MAIN_PATH_PROGRESS, START_OFFSET } from "./config";
 import { IllegalActionError } from "./types";
 
@@ -159,6 +165,39 @@ describe("applyMove", () => {
     expect(next.status).toBe("finished");
     expect(next.winnerSeatIndex).toBe(0);
     expect(events.some((e) => e.type === "won")).toBe(true);
+  });
+});
+
+describe("removePlayer", () => {
+  it("drops the seat's players and tokens, keeping the other turns intact", () => {
+    const state = createInitialGameState([0, 1, 2]);
+    const { state: next, events } = removePlayer(state, 1);
+    expect(next.players.map((p) => p.seatIndex)).toEqual([0, 2]);
+    expect(next.turnOrder).toEqual([0, 2]);
+    expect(next.currentTurnIndex).toBe(0); // seat 0 still has the turn
+    expect(events.some((e) => e.type === "player-removed")).toBe(true);
+  });
+
+  it("advances the turn when the removed seat currently held it", () => {
+    let state = createInitialGameState([0, 1, 2]);
+    state = { ...state, currentTurnIndex: 1 }; // seat 1's turn
+    const { state: next } = removePlayer(state, 1);
+    expect(next.turnOrder).toEqual([0, 2]);
+    expect(next.turnOrder[next.currentTurnIndex]).toBe(2); // next after seat 1 was seat 2
+    expect(next.pendingRoll).toBeNull();
+  });
+
+  it("declares the last remaining player the winner", () => {
+    const state = createInitialGameState([0, 1]);
+    const { state: next, events } = removePlayer(state, 1);
+    expect(next.status).toBe("finished");
+    expect(next.winnerSeatIndex).toBe(0);
+    expect(events.some((e) => e.type === "won")).toBe(true);
+  });
+
+  it("rejects removing a seat that isn't in the game", () => {
+    const state = createInitialGameState([0, 1]);
+    expect(() => removePlayer(state, 2)).toThrow(IllegalActionError);
   });
 });
 

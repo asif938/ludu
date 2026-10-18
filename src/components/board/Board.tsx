@@ -64,7 +64,7 @@ export function Board({
   return (
     <svg
       viewBox={`0 0 ${GRID_SIZE} ${GRID_SIZE}`}
-      className="aspect-square w-full min-w-0 max-w-[560px] flex-1 touch-none select-none rounded-xl border bg-card shadow-sm"
+      className="aspect-square w-full min-w-0 flex-1 touch-none select-none rounded-xl border bg-card shadow-sm lg:max-w-[760px]"
       role="img"
       aria-label="Ludo board"
     >

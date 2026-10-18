@@ -29,6 +29,7 @@ export interface UseRoomSocketResult {
   move: (seatIndex: number, tokenId: string, diceValue: number) => void;
   leave: () => void;
   requestState: () => void;
+  removePlayer: (targetSeatIndex: number) => void;
   clearError: () => void;
 }
 
@@ -131,6 +132,13 @@ export function useRoomSocket(roomId: string): UseRoomSocketResult {
     socketRef.current?.emit(ClientEvents.RequestState, { roomId });
   }, [roomId]);
 
+  const removePlayer = useCallback(
+    (targetSeatIndex: number) => {
+      socketRef.current?.emit(ClientEvents.RemovePlayer, { roomId, targetSeatIndex });
+    },
+    [roomId],
+  );
+
   const clearError = useCallback(() => setLastError(null), []);
 
   return {
@@ -147,6 +155,7 @@ export function useRoomSocket(roomId: string): UseRoomSocketResult {
     move,
     leave,
     requestState,
+    removePlayer,
     clearError,
   };
 }

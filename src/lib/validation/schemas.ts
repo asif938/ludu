@@ -52,3 +52,8 @@ export const movePayloadSchema = z.object({
 export const requestStatePayloadSchema = z.object({
   roomId: roomIdParamSchema,
 });
+
+export const removePlayerPayloadSchema = z.object({
+  roomId: roomIdParamSchema,
+  targetSeatIndex: z.number().int().min(0).max(3),
+});

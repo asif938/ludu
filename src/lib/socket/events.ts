@@ -13,6 +13,7 @@ export const ClientEvents = {
   Roll: "game:roll",
   Move: "game:move",
   RequestState: "game:request-state",
+  RemovePlayer: "game:remove-player",
 } as const;
 
 export const ServerEvents = {
@@ -44,6 +45,11 @@ export interface MovePayload {
   seatIndex: number;
   tokenId: string;
   diceValue: number;
+}
+
+export interface RemovePlayerPayload {
+  roomId: string;
+  targetSeatIndex: number;
 }
 
 export interface RoomUpdatedPayload {

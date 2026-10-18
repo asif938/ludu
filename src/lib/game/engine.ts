@@ -263,6 +263,71 @@ export function applyMove(
   return { state: next, events };
 }
 
+export interface RemovePlayerOutcome {
+  state: GameState;
+  events: GameEvent[];
+}
+
+/**
+ * Strips a seat out of an in-progress game: its player entry (and every
+ * token with it) is removed, and turn order/currentTurnIndex are
+ * recomputed so the game keeps running. If only one player is left, they
+ * win immediately rather than being left to "play" alone.
+ */
+export function removePlayer(state: GameState, seatIndex: number): RemovePlayerOutcome {
+  if (state.status !== "playing") {
+    throw new IllegalActionError("Game is not in progress.");
+  }
+  if (!state.players.some((p) => p.seatIndex === seatIndex)) {
+    throw new IllegalActionError(`No player at seat ${seatIndex}`);
+  }
+
+  const wasCurrentTurn = currentSeat(state) === seatIndex;
+  const players = state.players.filter((p) => p.seatIndex !== seatIndex);
+  const turnOrder = state.turnOrder.filter((s) => s !== seatIndex);
+  const events: GameEvent[] = [
+    { type: "player-removed", seatIndex: seatIndex as SeatIndex },
+  ];
+
+  if (players.length === 1) {
+    const winner = players[0];
+    const next: GameState = {
+      ...state,
+      version: state.version + 1,
+      players,
+      turnOrder,
+      currentTurnIndex: 0,
+      pendingRoll: null,
+      consecutiveSixes: 0,
+      status: "finished",
+      winnerSeatIndex: winner.seatIndex,
+    };
+    events.push({ type: "won", seatIndex: winner.seatIndex });
+    next.lastEvent = events[events.length - 1];
+    return { state: next, events };
+  }
+
+  // Recompute currentTurnIndex against the shrunken turnOrder: if the
+  // removed seat held the turn, advance to whoever was next in the
+  // original rotation; otherwise keep pointing at the same seat.
+  const targetSeat = wasCurrentTurn
+    ? state.turnOrder[(state.turnOrder.indexOf(seatIndex as SeatIndex) + 1) % state.turnOrder.length]
+    : currentSeat(state);
+  const currentTurnIndex = turnOrder.indexOf(targetSeat);
+
+  const next: GameState = {
+    ...state,
+    version: state.version + 1,
+    players,
+    turnOrder,
+    currentTurnIndex,
+    pendingRoll: wasCurrentTurn ? null : state.pendingRoll,
+    consecutiveSixes: wasCurrentTurn ? 0 : state.consecutiveSixes,
+  };
+  next.lastEvent = events[events.length - 1];
+  return { state: next, events };
+}
+
 /** Advances currentTurnIndex unless the player earned an extra roll (six). */
 function advanceTurn(state: GameState, grantExtraRoll: boolean): GameState {
   if (grantExtraRoll) {

@@ -19,6 +19,7 @@ export function RoomStage({ roomId }: { roomId: string }) {
     roll,
     move,
     leave,
+    removePlayer,
     clearError,
   } = useRoomSocket(roomId);
 
@@ -70,6 +71,7 @@ export function RoomStage({ roomId }: { roomId: string }) {
       lastDiceRoll={lastDiceRoll}
       onRoll={roll}
       onMove={move}
+      onRemovePlayer={removePlayer}
     />
   );
 }

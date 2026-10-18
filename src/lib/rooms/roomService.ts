@@ -2,6 +2,7 @@ import { COLOR_ORDER, QUICK_TOKENS_PER_PLAYER, TOKENS_PER_PLAYER } from "@/lib/g
 import {
   applyMove,
   createInitialGameState,
+  removePlayer,
   rollDiceValue,
   startTurnRoll,
 } from "@/lib/game/engine";
@@ -435,31 +436,99 @@ export async function moveForSeat(
     record.gameState = state;
     record.gameStateVersion = state.version;
 
-    if (state.status === "finished") {
-      record.status = "finished";
-      record.expiresAt = new Date(Date.now() + FINISHED_TTL_MS);
-      record.roomVersion += 1;
+    await finalizeIfFinished(
+      roomId,
+      record,
+      events,
+      (winnerSeat) =>
+        winnerSeat ? `${winnerSeat.displayName} (${winnerSeat.color}) won the match.` : "Match finished.",
+    );
 
-      const occupied = record.seats.filter((s) => s.occupied);
-      const winnerSeat = occupied.find((s) => s.seatIndex === state.winnerSeatIndex);
-      await recordGameHistory({
-        roomId,
-        players: occupied.map((s) => ({
-          seatIndex: s.seatIndex,
-          displayName: s.displayName ?? `Seat ${s.seatIndex}`,
-          color: s.color,
-        })),
-        startedAt: record.createdAt,
-        finishedAt: new Date(),
-        winnerSeatIndex: state.winnerSeatIndex,
-        resultSummary: winnerSeat
-          ? `${winnerSeat.displayName} (${winnerSeat.color}) won the match.`
-          : "Match finished.",
-        moveLog: events,
-      });
-    } else {
-      record.expiresAt = new Date(Date.now() + PLAYING_TTL_MS);
+    await save(record);
+    return { record, events };
+  });
+}
+
+/** Shared "did this action end the match" bookkeeping for moveForSeat and
+ * removePlayerFromMatch: records game history once, bumps TTLs either way. */
+async function finalizeIfFinished(
+  roomId: string,
+  record: RoomRecord,
+  events: GameEvent[],
+  summary: (winnerSeat: SeatRecord | undefined) => string,
+): Promise<void> {
+  const state = record.gameState;
+  if (!state || state.status !== "finished") {
+    record.expiresAt = new Date(Date.now() + PLAYING_TTL_MS);
+    return;
+  }
+
+  record.status = "finished";
+  record.expiresAt = new Date(Date.now() + FINISHED_TTL_MS);
+  record.roomVersion += 1;
+
+  const occupied = record.seats.filter((s) => s.occupied);
+  const winnerSeat = occupied.find((s) => s.seatIndex === state.winnerSeatIndex);
+  await recordGameHistory({
+    roomId,
+    players: occupied.map((s) => ({
+      seatIndex: s.seatIndex,
+      displayName: s.displayName ?? `Seat ${s.seatIndex}`,
+      color: s.color,
+    })),
+    startedAt: record.createdAt,
+    finishedAt: new Date(),
+    winnerSeatIndex: state.winnerSeatIndex,
+    resultSummary: summary(winnerSeat),
+    moveLog: events,
+  });
+}
+
+export interface RemovePlayerResult {
+  record: RoomRecord;
+  events: GameEvent[];
+}
+
+/**
+ * Host-only: drops a seat out of an in-progress match (not the lobby —
+ * use leaveRoom there). The engine strips the seat's players/tokens and
+ * recomputes turn order; here we just authorize the request and run the
+ * same "did this finish the match" bookkeeping moveForSeat uses.
+ */
+export async function removePlayerFromMatch(
+  roomId: string,
+  requesterSeatIndex: number,
+  targetSeatIndex: number,
+): Promise<RemovePlayerResult> {
+  return roomMutex.run(roomId, async () => {
+    const record = await getOrLoadRoom(roomId);
+    if (!record) {
+      throw new RoomServiceError("ROOM_NOT_FOUND", "This room does not exist.");
     }
+    const requester = record.seats.find((s) => s.seatIndex === requesterSeatIndex);
+    if (!requester?.isHost) {
+      throw new RoomServiceError("NOT_HOST", "Only the host can remove a player.");
+    }
+    if (targetSeatIndex === requesterSeatIndex) {
+      throw new RoomServiceError("VALIDATION_ERROR", "You can't remove your own seat this way.");
+    }
+    if (record.status !== "playing" || !record.gameState) {
+      throw new RoomServiceError("GAME_NOT_STARTED", "The match hasn't started.");
+    }
+
+    const { state, events } = removePlayer(record.gameState, targetSeatIndex);
+    record.gameState = state;
+    record.gameStateVersion = state.version;
+
+    await finalizeIfFinished(
+      roomId,
+      record,
+      events,
+      (winnerSeat) =>
+        winnerSeat
+          ? `${winnerSeat.displayName} (${winnerSeat.color}) won after other players were removed.`
+          : "Match finished.",
+    );
 
     await save(record);
     return { record, events };

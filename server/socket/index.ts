@@ -5,11 +5,13 @@ import {
   ServerEvents,
   type AuthenticatePayload,
   type MovePayload,
+  type RemovePlayerPayload,
   type RollPayload,
 } from "@/lib/socket/events";
 import {
   authenticatePayloadSchema,
   movePayloadSchema,
+  removePlayerPayloadSchema,
   requestStatePayloadSchema,
   rollPayloadSchema,
 } from "@/lib/validation/schemas";
@@ -21,6 +23,7 @@ import {
   getRoomSnapshot,
   leaveRoom,
   moveForSeat,
+  removePlayerFromMatch,
   rollForSeat,
   setSeatsConnected,
   startGame,
@@ -334,6 +337,44 @@ export function attachSocketServer(httpServer: HttpServer): Server {
             event,
           });
         }
+        io.to(roomChannel(roomId)).emit(ServerEvents.GameState, {
+          roomId,
+          state: record.gameState,
+        });
+        if (record.gameState?.status === "finished") {
+          io.to(roomChannel(roomId)).emit(ServerEvents.Finished, {
+            roomId,
+            winnerSeatIndex: record.gameState.winnerSeatIndex,
+          });
+        } else {
+          void driveBotTurns(io, roomId);
+        }
+      } catch (err) {
+        emitError(socket, err);
+      }
+    });
+
+    socket.on(ClientEvents.RemovePlayer, async (raw: unknown) => {
+      const parsed = removePlayerPayloadSchema.safeParse(raw);
+      if (!parsed.success) {
+        socket.emit(ServerEvents.Error, {
+          code: "VALIDATION_ERROR",
+          message: "Invalid request.",
+        });
+        return;
+      }
+      const { roomId, targetSeatIndex }: RemovePlayerPayload = parsed.data;
+      if (data.roomId !== roomId || !data.seatIndexes?.length) {
+        emitError(socket, new RoomServiceError("UNAUTHORIZED", "You are not in this room."));
+        return;
+      }
+      try {
+        const publicRoom = await getPublicRoom(roomId);
+        const hostSeatIndex = publicRoom?.seats.find((s) => s.isHost)?.seatIndex;
+        if (hostSeatIndex === undefined || !data.seatIndexes.includes(hostSeatIndex)) {
+          throw new RoomServiceError("NOT_HOST", "Only the host can remove a player.");
+        }
+        const { record } = await removePlayerFromMatch(roomId, hostSeatIndex, targetSeatIndex);
         io.to(roomChannel(roomId)).emit(ServerEvents.GameState, {
           roomId,
           state: record.gameState,
