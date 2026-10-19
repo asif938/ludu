@@ -22,11 +22,32 @@ export function rollDiceValue(): number {
   return randomInt(1, 7); // 1-6 inclusive
 }
 
-/** How many of a player's own turns the yard-stuck pity timer spans. */
-const SIX_PITY_WINDOW = 5;
-
-function allTokensInYard(player: PlayerState): boolean {
-  return player.tokens.every((t) => t.status === "yard");
+/**
+ * Per-stage pity window: `stage` is how many of the player's tokens have
+ * already left the yard when this window applies. `grace` turns roll
+ * completely normally (a natural 6 there satisfies the rule on its own);
+ * if none lands, a 6 is guaranteed on one randomly chosen turn among the
+ * following `guarantee` turns.
+ *
+ *  - stage 0 (releasing the 1st token): no grace, guaranteed within 5.
+ *  - stage 1 (2nd token, Quick *and* Normal match): 4 grace + 3 guarantee.
+ *  - stage 2 (3rd token, Normal match only): 4 grace + 3 guarantee.
+ *  - stage 3 (4th token, Normal match only): 5 grace + 4 guarantee.
+ *
+ * `totalTokens` distinguishes Quick (2 tokens) from Normal (4 tokens)
+ * matches without needing an explicit mode flag: stages 2 and 3 only ever
+ * occur in a 4-token match, since a 2-token player has no yard tokens left
+ * once stage 1 completes.
+ */
+function pityWindowFor(
+  releasedCount: number,
+  totalTokens: number,
+): { grace: number; guarantee: number } | null {
+  if (releasedCount === 0) return { grace: 0, guarantee: 5 };
+  if (releasedCount === 1) return { grace: 4, guarantee: 3 };
+  if (totalTokens > 2 && releasedCount === 2) return { grace: 4, guarantee: 3 };
+  if (totalTokens > 2 && releasedCount === 3) return { grace: 5, guarantee: 4 };
+  return null;
 }
 
 export interface DiceRollPrep {
@@ -36,10 +57,11 @@ export interface DiceRollPrep {
 }
 
 /**
- * Tracks, per seat, a "pity" guarantee: once a player has every token stuck
- * in the yard, they are guaranteed a 6 on one randomly chosen turn within
- * their next 5 turns (never always the first, never a fixed count-down).
- * Other turns for that seat roll normally, and other seats are untouched.
+ * Tracks, per seat, a "pity" guarantee that helps a stuck player release
+ * their next yard token within a bounded number of turns (see
+ * `pityWindowFor`), landing the guaranteed 6 on a randomly chosen turn
+ * rather than always the first or last. Other turns for that seat roll
+ * normally, and other seats are untouched.
  *
  * Call this before generating the actual dice value, then use
  * `forcedValue` in place of a random roll when it is non-null.
@@ -48,15 +70,24 @@ export function prepareDiceRoll(state: GameState, seatIndex: number): DiceRollPr
   const player = state.players.find((p) => p.seatIndex === seatIndex);
   if (!player) return { state, forcedValue: null };
 
-  if (!allTokensInYard(player)) {
+  const totalTokens = player.tokens.length;
+  const releasedCount = player.tokens.filter((t) => t.status !== "yard").length;
+  const window = pityWindowFor(releasedCount, totalTokens);
+
+  if (!window) {
     if (!player.sixPity) return { state, forcedValue: null };
     return { state: withPity(state, seatIndex, null), forcedValue: null };
   }
 
-  const pity = player.sixPity ?? {
-    targetTurn: randomInt(1, SIX_PITY_WINDOW + 1), // 1..5 inclusive
-    turnsElapsed: 0,
-  };
+  const existing = player.sixPity;
+  const pity =
+    existing && existing.stage === releasedCount
+      ? existing
+      : {
+          stage: releasedCount,
+          targetTurn: window.grace + randomInt(1, window.guarantee + 1),
+          turnsElapsed: 0,
+        };
   const turnsElapsed = pity.turnsElapsed + 1;
 
   if (turnsElapsed >= pity.targetTurn) {
@@ -68,7 +99,7 @@ export function prepareDiceRoll(state: GameState, seatIndex: number): DiceRollPr
 function withPity(
   state: GameState,
   seatIndex: number,
-  sixPity: { targetTurn: number; turnsElapsed: number } | null,
+  sixPity: { stage: number; targetTurn: number; turnsElapsed: number } | null,
 ): GameState {
   return {
     ...state,

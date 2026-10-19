@@ -27,11 +27,14 @@ export interface PlayerState {
   color: PlayerColor;
   tokens: TokenState[];
   /**
-   * Pity timer guaranteeing a 6 within 5 turns of having every token stuck
-   * in the yard. Set the first time that condition is observed and cleared
-   * as soon as it no longer holds (a token leaves the yard, by any means).
+   * Pity timer helping the player release their *next* yard token. `stage`
+   * is the number of tokens already released when the timer was started
+   * (0 = waiting on the 1st token, 1 = waiting on the 2nd, ...); the timer
+   * restarts from scratch whenever the current released count no longer
+   * matches `stage` (a token left the yard, or one was captured back into
+   * it). See `pityWindowFor` in engine.ts for the per-stage turn windows.
    */
-  sixPity?: { targetTurn: number; turnsElapsed: number } | null;
+  sixPity?: { stage: number; targetTurn: number; turnsElapsed: number } | null;
 }
 
 export type GameStatus = "playing" | "finished";
