@@ -2,13 +2,13 @@ import { COLOR_ORDER, QUICK_TOKENS_PER_PLAYER, TOKENS_PER_PLAYER } from "@/lib/g
 import {
   applyMove,
   createInitialGameState,
-  prepareDiceRoll,
   removePlayer,
-  rollDiceValue,
+  resolveDiceRoll,
   startTurnRoll,
 } from "@/lib/game/engine";
 import type { GameEvent, SeatIndex } from "@/lib/game/types";
 import { roomMutex } from "@/lib/concurrency/keyedMutex";
+import { getDiceRulesConfig } from "@/lib/settings/diceRulesService";
 import {
   createDeviceGroupId,
   createRoomId,
@@ -397,9 +397,9 @@ export async function rollForSeat(
       throw new RoomServiceError("GAME_NOT_STARTED", "The game has not started.");
     }
 
-    const prep = prepareDiceRoll(record.gameState, seatIndex);
-    const roll = prep.forcedValue ?? rollDiceValue();
-    const outcome = startTurnRoll(prep.state, seatIndex, roll);
+    const diceRulesConfig = await getDiceRulesConfig();
+    const resolved = resolveDiceRoll(record.gameState, seatIndex, diceRulesConfig);
+    const outcome = startTurnRoll(resolved.state, seatIndex, resolved.roll);
     record.gameState = outcome.state;
     record.gameStateVersion = outcome.state.version;
     record.expiresAt = new Date(Date.now() + PLAYING_TTL_MS);
@@ -407,7 +407,7 @@ export async function rollForSeat(
 
     return {
       record,
-      roll,
+      roll: resolved.roll,
       legalTokenIds: outcome.legalMoves.map((m) => m.tokenId),
       autoSkipped: outcome.autoSkipped,
     };

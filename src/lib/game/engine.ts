@@ -5,8 +5,15 @@ import {
   FINISH_PROGRESS,
   isSafeCell,
   LAST_MAIN_PATH_PROGRESS,
+  QUICK_TOKENS_PER_PLAYER,
   TOKENS_PER_PLAYER,
 } from "./config";
+import {
+  DEFAULT_DICE_RULES_CONFIG,
+  DiceRulesConfig,
+  GuaranteeWindowConfig,
+  MatchType,
+} from "./diceRules";
 import {
   GameEvent,
   GameState,
@@ -22,32 +29,34 @@ export function rollDiceValue(): number {
   return randomInt(1, 7); // 1-6 inclusive
 }
 
+/** A seat's tokens.length determines Quick (2) vs Normal (4) without an
+ * explicit mode flag threaded through every call site. */
+function matchTypeFor(totalTokens: number): MatchType {
+  return totalTokens > QUICK_TOKENS_PER_PLAYER ? "normal" : "quick";
+}
+
 /**
- * Per-stage pity window: `stage` is how many of the player's tokens have
- * already left the yard when this window applies. `grace` turns roll
+ * Looks up the configured "release the next token" window for the given
+ * stage (how many tokens have already left the yard): `grace` turns roll
  * completely normally (a natural 6 there satisfies the rule on its own);
  * if none lands, a 6 is guaranteed on one randomly chosen turn among the
- * following `guarantee` turns.
- *
- *  - stage 0 (releasing the 1st token): no grace, guaranteed within 5.
- *  - stage 1 (2nd token, Quick *and* Normal match): 4 grace + 3 guarantee.
- *  - stage 2 (3rd token, Normal match only): 4 grace + 3 guarantee.
- *  - stage 3 (4th token, Normal match only): 5 grace + 4 guarantee.
- *
- * `totalTokens` distinguishes Quick (2 tokens) from Normal (4 tokens)
- * matches without needing an explicit mode flag: stages 2 and 3 only ever
- * occur in a 4-token match, since a 2-token player has no yard tokens left
- * once stage 1 completes.
+ * following `guarantee` turns. Returns null when that stage's rule is
+ * disabled, or doesn't apply (stages 2/3 only exist in a Normal match).
  */
-function pityWindowFor(
+function sixGuaranteeWindow(
   releasedCount: number,
-  totalTokens: number,
+  matchType: MatchType,
+  config: DiceRulesConfig,
 ): { grace: number; guarantee: number } | null {
-  if (releasedCount === 0) return { grace: 0, guarantee: 5 };
-  if (releasedCount === 1) return { grace: 4, guarantee: 3 };
-  if (totalTokens > 2 && releasedCount === 2) return { grace: 4, guarantee: 3 };
-  if (totalTokens > 2 && releasedCount === 3) return { grace: 5, guarantee: 4 };
-  return null;
+  const cfg = config.sixGuarantee;
+  let stage: GuaranteeWindowConfig | undefined;
+  if (releasedCount === 0) stage = cfg.firstToken[matchType];
+  else if (releasedCount === 1) stage = cfg.secondToken[matchType];
+  else if (releasedCount === 2 && matchType === "normal") stage = cfg.thirdToken.normal;
+  else if (releasedCount === 3 && matchType === "normal") stage = cfg.fourthToken.normal;
+
+  if (!stage || !stage.enabled) return null;
+  return { grace: stage.grace, guarantee: stage.guarantee };
 }
 
 export interface DiceRollPrep {
@@ -59,20 +68,24 @@ export interface DiceRollPrep {
 /**
  * Tracks, per seat, a "pity" guarantee that helps a stuck player release
  * their next yard token within a bounded number of turns (see
- * `pityWindowFor`), landing the guaranteed 6 on a randomly chosen turn
+ * `sixGuaranteeWindow`), landing the guaranteed 6 on a randomly chosen turn
  * rather than always the first or last. Other turns for that seat roll
  * normally, and other seats are untouched.
  *
  * Call this before generating the actual dice value, then use
  * `forcedValue` in place of a random roll when it is non-null.
  */
-export function prepareDiceRoll(state: GameState, seatIndex: number): DiceRollPrep {
+export function prepareDiceRoll(
+  state: GameState,
+  seatIndex: number,
+  config: DiceRulesConfig = DEFAULT_DICE_RULES_CONFIG,
+): DiceRollPrep {
   const player = state.players.find((p) => p.seatIndex === seatIndex);
   if (!player) return { state, forcedValue: null };
 
-  const totalTokens = player.tokens.length;
+  const matchType = matchTypeFor(player.tokens.length);
   const releasedCount = player.tokens.filter((t) => t.status !== "yard").length;
-  const window = pityWindowFor(releasedCount, totalTokens);
+  const window = sixGuaranteeWindow(releasedCount, matchType, config);
 
   if (!window) {
     if (!player.sixPity) return { state, forcedValue: null };
@@ -105,6 +118,75 @@ function withPity(
     ...state,
     players: state.players.map((p) =>
       p.seatIndex === seatIndex ? { ...p, sixPity } : p,
+    ),
+  };
+}
+
+export interface DiceRollResolution {
+  state: GameState;
+  roll: number;
+}
+
+/**
+ * The single entry point a room should call to get a seat's next dice
+ * value. Layers two independent anti-"1"-streak rules on top of the
+ * six-guarantee pity timer above, each toggleable via `config`:
+ *
+ *  - Consecutive-1 cap: blocks a 1 once the player has just rolled it
+ *    `maxConsecutive` times in a row.
+ *  - Five-turn 1 restriction: after any 1, blocks another 1 for the next
+ *    `blockTurnsAfterOne` of that seat's turns.
+ *
+ * Both rules only ever *exclude* 1 from an otherwise-fair 2-6 roll; they
+ * never force a specific value, so they can never conflict with the
+ * six-guarantee's forced 6 (which already satisfies "not a 1"). Only this
+ * seat's own state is read or written.
+ */
+export function resolveDiceRoll(
+  state: GameState,
+  seatIndex: number,
+  config: DiceRulesConfig = DEFAULT_DICE_RULES_CONFIG,
+): DiceRollResolution {
+  const player = state.players.find((p) => p.seatIndex === seatIndex);
+  if (!player) return { state, roll: rollDiceValue() };
+
+  const matchType = matchTypeFor(player.tokens.length);
+
+  const sixPrep = prepareDiceRoll(state, seatIndex, config);
+  const working = sixPrep.state;
+
+  const guardPlayer = working.players.find((p) => p.seatIndex === seatIndex)!;
+  const oneGuard = guardPlayer.oneGuard ?? { consecutiveOnes: 0, cooldownRemaining: 0 };
+  const capCfg = config.consecutiveOneCap[matchType];
+  const fiveTurnCfg = config.fiveTurnOneRestriction[matchType];
+
+  const mustExcludeOne =
+    sixPrep.forcedValue === null &&
+    ((capCfg.enabled && oneGuard.consecutiveOnes >= capCfg.maxConsecutive) ||
+      (fiveTurnCfg.enabled && oneGuard.cooldownRemaining > 0));
+
+  const roll = sixPrep.forcedValue ?? (mustExcludeOne ? randomInt(2, 7) : rollDiceValue());
+
+  const nextOneGuard = {
+    consecutiveOnes: roll === 1 ? oneGuard.consecutiveOnes + 1 : 0,
+    cooldownRemaining:
+      roll === 1
+        ? fiveTurnCfg.blockTurnsAfterOne
+        : Math.max(0, oneGuard.cooldownRemaining - 1),
+  };
+
+  return { state: withOneGuard(working, seatIndex, nextOneGuard), roll };
+}
+
+function withOneGuard(
+  state: GameState,
+  seatIndex: number,
+  oneGuard: { consecutiveOnes: number; cooldownRemaining: number },
+): GameState {
+  return {
+    ...state,
+    players: state.players.map((p) =>
+      p.seatIndex === seatIndex ? { ...p, oneGuard } : p,
     ),
   };
 }

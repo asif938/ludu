@@ -5,8 +5,10 @@ import {
   getLegalMoves,
   prepareDiceRoll,
   removePlayer,
+  resolveDiceRoll,
   startTurnRoll,
 } from "./engine";
+import { createDefaultDiceRulesConfig } from "./diceRules";
 import {
   FINISH_PROGRESS,
   LAST_MAIN_PATH_PROGRESS,
@@ -365,6 +367,176 @@ describe("prepareDiceRoll (release-pity timer)", () => {
     prep = prepareDiceRoll(state, 0);
     state = prep.state;
     expect(state.players[0].sixPity).toMatchObject({ stage: 2, turnsElapsed: 1 });
+  });
+
+  it("is config-driven: a disabled stage never forces, even with every token in the yard", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.sixGuarantee.firstToken.normal.enabled = false;
+    let state = createInitialGameState([0, 1]);
+    for (let turn = 0; turn < 20; turn++) {
+      const prep = prepareDiceRoll(state, 0, config);
+      state = prep.state;
+      expect(prep.forcedValue).toBeNull();
+    }
+  });
+
+  it("is config-driven: a custom grace/guarantee window is honored", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.sixGuarantee.firstToken.normal = { enabled: true, grace: 2, guarantee: 1 };
+    let state = createInitialGameState([0, 1]);
+    let forcedOnTurn = -1;
+    for (let turn = 1; turn <= 3; turn++) {
+      const prep = prepareDiceRoll(state, 0, config);
+      state = prep.state;
+      if (turn <= 2) expect(prep.forcedValue).toBeNull();
+      if (prep.forcedValue !== null) {
+        forcedOnTurn = turn;
+        break;
+      }
+    }
+    // grace=2, guarantee=1 leaves exactly one possible forced turn: the 3rd.
+    expect(forcedOnTurn).toBe(3);
+  });
+});
+
+describe("resolveDiceRoll (anti-streak '1' rules)", () => {
+  it("consecutive-1 cap: excludes the 1 immediately after maxConsecutive land in a row", () => {
+    const config = createDefaultDiceRulesConfig();
+    // Disable the overlapping five-turn rule so only the cap is in play.
+    config.fiveTurnOneRestriction.normal.enabled = false;
+    config.consecutiveOneCap.normal.maxConsecutive = 2;
+    let state = createInitialGameState([0, 1]);
+    // Move red-0 out of the yard so the six-guarantee never interferes.
+    state = withTokenProgress(state, 0, "red-0", 5);
+
+    // Seed the "already rolled two 1s in a row" precondition directly,
+    // bypassing randomness.
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.seatIndex === 0 ? { ...p, oneGuard: { consecutiveOnes: 2, cooldownRemaining: 0 } } : p,
+      ),
+    };
+
+    const resolved = resolveDiceRoll(state, 0, config);
+    expect(resolved.roll).not.toBe(1);
+    // Breaking the streak with a forced non-1 resets the counter — the cap
+    // only ever blocks the one roll that would have made it a 3rd in a row.
+    expect(resolved.state.players[0].oneGuard?.consecutiveOnes).toBe(0);
+  });
+
+  it("consecutive-1 cap: does not touch a player who hasn't rolled two 1s in a row", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.fiveTurnOneRestriction.normal.enabled = false;
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.seatIndex === 0 ? { ...p, oneGuard: { consecutiveOnes: 1, cooldownRemaining: 0 } } : p,
+      ),
+    };
+    // A single prior 1 is below the default cap of 2 — a roll of 1 must
+    // still be possible (not deterministically excluded).
+    const rolls = new Set<number>();
+    for (let i = 0; i < 50; i++) {
+      let trialState = state;
+      const resolved = resolveDiceRoll(trialState, 0, config);
+      trialState = resolved.state;
+      rolls.add(resolved.roll);
+    }
+    expect(rolls.size).toBeGreaterThan(1);
+  });
+
+  it("five-turn restriction: blocks 1 for the configured number of turns after one lands", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.consecutiveOneCap.normal.enabled = false; // isolate this rule
+    config.fiveTurnOneRestriction.normal.blockTurnsAfterOne = 4;
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.seatIndex === 0 ? { ...p, oneGuard: { consecutiveOnes: 1, cooldownRemaining: 4 } } : p,
+      ),
+    };
+
+    for (let turn = 0; turn < 4; turn++) {
+      const resolved = resolveDiceRoll(state, 0, config);
+      expect(resolved.roll).not.toBe(1);
+      state = resolved.state;
+    }
+    expect(state.players[0].oneGuard?.cooldownRemaining).toBe(0);
+
+    // Cooldown has fully elapsed: a 1 must be possible again.
+    const rolls = new Set<number>();
+    for (let i = 0; i < 50; i++) {
+      const resolved = resolveDiceRoll(state, 0, config);
+      rolls.add(resolved.roll);
+    }
+    expect(rolls.has(1)).toBe(true);
+  });
+
+  it("five-turn restriction: a natural 1 (re)starts the configured cooldown", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.consecutiveOneCap.normal.enabled = false;
+    config.fiveTurnOneRestriction.normal.blockTurnsAfterOne = 4;
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+
+    let sawOne = false;
+    for (let attempt = 0; attempt < 500 && !sawOne; attempt++) {
+      const resolved = resolveDiceRoll(state, 0, config);
+      if (resolved.roll === 1) {
+        sawOne = true;
+        state = resolved.state;
+      }
+    }
+    expect(sawOne).toBe(true);
+    expect(state.players[0].oneGuard).toMatchObject({ consecutiveOnes: 1, cooldownRemaining: 4 });
+  });
+
+  it("never forces an excluded 1 against the six-guarantee: a forced 6 always wins", () => {
+    const config = createDefaultDiceRulesConfig();
+    let state = createInitialGameState([0, 1]);
+    // Drive every token into the yard's stage-0 window until forced.
+    let forced = false;
+    for (let turn = 1; turn <= 5 && !forced; turn++) {
+      const resolved = resolveDiceRoll(state, 0, config);
+      state = resolved.state;
+      if (resolved.roll === 6 && state.players[0].sixPity == null) {
+        forced = true;
+      }
+    }
+    expect(forced).toBe(true);
+  });
+
+  it("is disabled entirely when both config flags are off: natural 1s are never excluded", () => {
+    const config = createDefaultDiceRulesConfig();
+    config.consecutiveOneCap.normal.enabled = false;
+    config.fiveTurnOneRestriction.normal.enabled = false;
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.seatIndex === 0 ? { ...p, oneGuard: { consecutiveOnes: 5, cooldownRemaining: 5 } } : p,
+      ),
+    };
+    const rolls = new Set<number>();
+    for (let i = 0; i < 50; i++) {
+      const resolved = resolveDiceRoll(state, 0, config);
+      rolls.add(resolved.roll);
+    }
+    expect(rolls.has(1)).toBe(true);
+  });
+
+  it("never touches another seat's one-guard state", () => {
+    const config = createDefaultDiceRulesConfig();
+    let state = createInitialGameState([0, 1]);
+    state = withTokenProgress(state, 0, "red-0", 5);
+    const resolved = resolveDiceRoll(state, 0, config);
+    expect(resolved.state.players[1].oneGuard ?? null).toBeNull();
   });
 });
 

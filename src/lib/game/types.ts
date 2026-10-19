@@ -35,6 +35,13 @@ export interface PlayerState {
    * it). See `pityWindowFor` in engine.ts for the per-stage turn windows.
    */
   sixPity?: { stage: number; targetTurn: number; turnsElapsed: number } | null;
+  /**
+   * Bookkeeping for the anti-streak "1" rules (consecutive-roll cap and
+   * five-turn cooldown). Always maintained from the actual roll history,
+   * independently of whether either rule is currently enabled, so toggling
+   * a rule mid-match reacts to real history rather than a blank slate.
+   */
+  oneGuard?: { consecutiveOnes: number; cooldownRemaining: number } | null;
 }
 
 export type GameStatus = "playing" | "finished";

@@ -57,3 +57,46 @@ export const removePlayerPayloadSchema = z.object({
   roomId: roomIdParamSchema,
   targetSeatIndex: z.number().int().min(0).max(3),
 });
+
+const guaranteeWindowSchema = z.object({
+  enabled: z.boolean(),
+  grace: z.number().int().min(0).max(20),
+  guarantee: z.number().int().min(1).max(20),
+});
+
+const perMatchGuaranteeSchema = z.object({
+  quick: guaranteeWindowSchema,
+  normal: guaranteeWindowSchema,
+});
+
+const normalOnlyGuaranteeSchema = z.object({
+  normal: guaranteeWindowSchema,
+});
+
+const consecutiveOneCapPerMatchSchema = z.object({
+  enabled: z.boolean(),
+  maxConsecutive: z.number().int().min(1).max(10),
+});
+
+const fiveTurnOneRestrictionPerMatchSchema = z.object({
+  enabled: z.boolean(),
+  blockTurnsAfterOne: z.number().int().min(0).max(20),
+});
+
+export const diceRulesConfigSchema = z.object({
+  sixGuarantee: z.object({
+    firstToken: perMatchGuaranteeSchema,
+    secondToken: perMatchGuaranteeSchema,
+    thirdToken: normalOnlyGuaranteeSchema,
+    fourthToken: normalOnlyGuaranteeSchema,
+  }),
+  consecutiveOneCap: z.object({
+    quick: consecutiveOneCapPerMatchSchema,
+    normal: consecutiveOneCapPerMatchSchema,
+  }),
+  fiveTurnOneRestriction: z.object({
+    quick: fiveTurnOneRestrictionPerMatchSchema,
+    normal: fiveTurnOneRestrictionPerMatchSchema,
+  }),
+});
+export type DiceRulesConfigInput = z.infer<typeof diceRulesConfigSchema>;
