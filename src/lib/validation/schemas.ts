@@ -58,6 +58,12 @@ export const removePlayerPayloadSchema = z.object({
   targetSeatIndex: z.number().int().min(0).max(3),
 });
 
+export const configureSeatPayloadSchema = z.object({
+  roomId: roomIdParamSchema,
+  targetSeatIndex: z.number().int().min(0).max(3),
+  mode: z.enum(["bot", "empty", "waiting"]),
+});
+
 const guaranteeWindowSchema = z.object({
   enabled: z.boolean(),
   grace: z.number().int().min(0).max(20),

@@ -4,12 +4,14 @@ import {
   ClientEvents,
   ServerEvents,
   type AuthenticatePayload,
+  type ConfigureSeatPayload,
   type MovePayload,
   type RemovePlayerPayload,
   type RollPayload,
 } from "@/lib/socket/events";
 import {
   authenticatePayloadSchema,
+  configureSeatPayloadSchema,
   movePayloadSchema,
   removePlayerPayloadSchema,
   requestStatePayloadSchema,
@@ -19,6 +21,7 @@ import { actionRateLimiter } from "@/lib/socket/rateLimiter";
 import { RoomServiceError } from "@/lib/rooms/errors";
 import {
   authenticateSeats,
+  configureSeat,
   getPublicRoom,
   getRoomSnapshot,
   leaveRoom,
@@ -387,6 +390,36 @@ export function attachSocketServer(httpServer: HttpServer): Server {
         } else {
           void driveBotTurns(io, roomId);
         }
+      } catch (err) {
+        emitError(socket, err);
+      }
+    });
+
+    socket.on(ClientEvents.ConfigureSeat, async (raw: unknown) => {
+      const parsed = configureSeatPayloadSchema.safeParse(raw);
+      if (!parsed.success) {
+        socket.emit(ServerEvents.Error, {
+          code: "VALIDATION_ERROR",
+          message: "Invalid request.",
+        });
+        return;
+      }
+      const { roomId, targetSeatIndex, mode }: ConfigureSeatPayload = parsed.data;
+      if (data.roomId !== roomId || !data.seatIndexes?.length) {
+        emitError(socket, new RoomServiceError("UNAUTHORIZED", "You are not in this room."));
+        return;
+      }
+      try {
+        const publicRoom = await getPublicRoom(roomId);
+        const hostSeatIndex = publicRoom?.seats.find((s) => s.isHost)?.seatIndex;
+        if (hostSeatIndex === undefined || !data.seatIndexes.includes(hostSeatIndex)) {
+          throw new RoomServiceError("NOT_HOST", "Only the host can configure seats.");
+        }
+        const record = await configureSeat(roomId, hostSeatIndex, targetSeatIndex, mode);
+        io.to(roomChannel(roomId)).emit(
+          ServerEvents.Updated,
+          buildRoomUpdatedPayload(toPublicRoom(record)),
+        );
       } catch (err) {
         emitError(socket, err);
       }

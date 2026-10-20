@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Check, Copy, LogOut, Share2, Smartphone, Wifi, WifiOff } from "lucide-react";
+import {
+  Bot,
+  Check,
+  Copy,
+  LogOut,
+  Share2,
+  Smartphone,
+  UserMinus,
+  UserPlus,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,17 +20,20 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { PLAYER_COLOR_STYLES } from "@/lib/ui/playerColors";
 import type { RoomUpdatedPayload } from "@/lib/socket/events";
+import type { SeatConfigureMode } from "@/lib/rooms/types";
 
 export function Lobby({
   room,
   mySeatIndexes,
   onStart,
   onLeave,
+  onConfigureSeat,
 }: {
   room: RoomUpdatedPayload;
   mySeatIndexes: number[];
   onStart: () => void;
   onLeave: () => void;
+  onConfigureSeat: (targetSeatIndex: number, mode: SeatConfigureMode) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const isHost = mySeatIndexes.includes(room.hostSeatIndex);
@@ -87,16 +101,21 @@ export function Lobby({
         <CardContent className="space-y-2">
           {room.seats.map((seat) => {
             const style = PLAYER_COLOR_STYLES[seat.color];
+            const seatLabel = seat.occupied
+              ? seat.displayName
+              : seat.closed
+                ? `Seat ${seat.seatIndex + 1} — left empty`
+                : `Seat ${seat.seatIndex + 1} — waiting for player`;
             return (
               <div
                 key={seat.seatIndex}
-                className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex items-center gap-3">
                   <span className={`size-3 shrink-0 rounded-full ${seat.occupied ? style.bg : "bg-muted"}`} />
                   <div>
                     <p className="text-sm font-medium">
-                      {seat.occupied ? seat.displayName : `Seat ${seat.seatIndex + 1} — open`}
+                      {seatLabel}
                       {seat.isHost && (
                         <Badge variant="outline" className="ml-2 text-[10px]">
                           Host
@@ -131,6 +150,49 @@ export function Lobby({
                         </span>
                       </>
                     )}
+                  </div>
+                )}
+                {isHost && !seat.occupied && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onConfigureSeat(seat.seatIndex, "bot")}
+                    >
+                      <Bot className="size-3.5" />
+                      Add bot
+                    </Button>
+                    {seat.closed ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onConfigureSeat(seat.seatIndex, "waiting")}
+                      >
+                        <UserPlus className="size-3.5" />
+                        Wait for player
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onConfigureSeat(seat.seatIndex, "empty")}
+                      >
+                        <UserMinus className="size-3.5" />
+                        Leave empty
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {isHost && seat.occupied && seat.kind === "bot" && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onConfigureSeat(seat.seatIndex, "waiting")}
+                    >
+                      <UserMinus className="size-3.5" />
+                      Remove bot
+                    </Button>
                   </div>
                 )}
               </div>

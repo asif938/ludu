@@ -15,10 +15,41 @@ import { PLAYER_COLOR_STYLES } from "@/lib/ui/playerColors";
 
 const STARS = starCoordinates();
 
+interface StackSlot {
+  cx: number;
+  cy: number;
+  hw: number;
+  hh: number;
+  dotRadius: number;
+}
+
+/**
+ * Compact, non-overlapping layouts for a cell shared by 2+ tokens. Each
+ * slot's hit rect (hw/hh, half-width/half-height) tiles the cell without
+ * touching its neighbors', so two stacked tokens can never block each
+ * other's taps regardless of z-order.
+ */
+const STACK_SLOTS: Record<2 | 4, StackSlot[]> = {
+  2: [
+    { cx: 0.29, cy: 0.5, hw: 0.2, hh: 0.46, dotRadius: 0.19 },
+    { cx: 0.71, cy: 0.5, hw: 0.2, hh: 0.46, dotRadius: 0.19 },
+  ],
+  4: [
+    { cx: 0.29, cy: 0.29, hw: 0.2, hh: 0.2, dotRadius: 0.17 },
+    { cx: 0.71, cy: 0.29, hw: 0.2, hh: 0.2, dotRadius: 0.17 },
+    { cx: 0.29, cy: 0.71, hw: 0.2, hh: 0.2, dotRadius: 0.17 },
+    { cx: 0.71, cy: 0.71, hw: 0.2, hh: 0.2, dotRadius: 0.17 },
+  ],
+};
+
+type HitArea = { shape: "circle"; r: number } | { shape: "rect"; hw: number; hh: number };
+
 interface PositionedToken {
   token: TokenState;
   x: number;
   y: number;
+  dotRadius: number;
+  hit: HitArea;
 }
 
 export function Board({
@@ -43,19 +74,30 @@ export function Board({
       groups.set(key, list);
     }
 
-    const STACK_OFFSETS = [
-      [0, 0],
-      [0.26, 0],
-      [0, 0.26],
-      [0.26, 0.26],
-    ];
-
     const result: PositionedToken[] = [];
     for (const list of groups.values()) {
+      const n = list.length;
       list.forEach((token, i) => {
         const [row, col] = tokenCoordinate(token);
-        const [ox, oy] = list.length > 1 ? STACK_OFFSETS[i % 4] : [0.11, 0.11];
-        result.push({ token, x: col + ox, y: row + oy });
+        if (n <= 1) {
+          result.push({
+            token,
+            x: col,
+            y: row,
+            dotRadius: 0.4,
+            hit: { shape: "circle", r: 0.5 },
+          });
+          return;
+        }
+        const slots = STACK_SLOTS[n === 2 ? 2 : 4];
+        const slot = slots[i % slots.length];
+        result.push({
+          token,
+          x: col + slot.cx - 0.5,
+          y: row + slot.cy - 0.5,
+          dotRadius: slot.dotRadius,
+          hit: { shape: "rect", hw: slot.hw, hh: slot.hh },
+        });
       });
     }
     return result;
@@ -154,41 +196,64 @@ export function Board({
       </g>
 
       {/* Tokens */}
-      {positioned.map(({ token, x, y }) => {
+      {positioned.map(({ token, x, y, dotRadius, hit }) => {
         const isLegal = legalTokenIds.includes(token.id);
         const isMine = myTokenIds.has(token.id);
         const clickable = isLegal && isMine;
+        const compact = dotRadius < 0.35;
+        const ringRadius = dotRadius + (compact ? 0.08 : 0.12);
         return (
           <g
             key={token.id}
             style={{ transform: `translate(${x}px, ${y}px)` }}
             className="transition-transform duration-300 ease-out motion-reduce:transition-none"
           >
-            {isLegal && isMine && (
+            {clickable && (
               <circle
                 cx={0.5}
                 cy={0.5}
-                r={0.52}
+                r={ringRadius}
                 fill="none"
                 stroke={PLAYER_COLOR_STYLES[token.color].hex}
-                strokeWidth={0.09}
-                className="motion-safe:animate-pulse"
+                strokeWidth={compact ? 0.05 : 0.09}
+                className="pointer-events-none motion-safe:animate-pulse"
               />
             )}
-            {clickable && (
-              // Invisible, larger-than-the-dot hit area so the token stays
-              // easy to tap on small screens without the visual dot
-              // overlapping its neighbors too much.
-              <circle cx={0.5} cy={0.5} r={0.5} fill="transparent" className="cursor-pointer" onClick={() => onTokenClick(token.id)} />
-            )}
+            {clickable &&
+              // Each clickable token's hit area is sized to its own stacked
+              // slot (never bigger), so overlapping tokens can't steal each
+              // other's taps regardless of draw order.
+              (hit.shape === "circle" ? (
+                <circle
+                  cx={0.5}
+                  cy={0.5}
+                  r={hit.r}
+                  fill="transparent"
+                  className="cursor-pointer"
+                  onClick={() => onTokenClick(token.id)}
+                />
+              ) : (
+                <rect
+                  x={0.5 - hit.hw}
+                  y={0.5 - hit.hh}
+                  width={hit.hw * 2}
+                  height={hit.hh * 2}
+                  fill="transparent"
+                  className="cursor-pointer"
+                  onClick={() => onTokenClick(token.id)}
+                />
+              ))}
             <circle
               cx={0.5}
               cy={0.5}
-              r={0.4}
+              r={dotRadius}
               fill={PLAYER_COLOR_STYLES[token.color].hex}
               stroke="white"
-              strokeWidth={0.07}
-              className={clickable ? "pointer-events-none" : undefined}
+              strokeWidth={compact ? 0.045 : 0.07}
+              // Always non-interactive: a solid-filled token drawn on top of
+              // a stacked neighbor must never swallow that neighbor's click,
+              // whether or not this token itself is selectable.
+              className="pointer-events-none"
             />
           </g>
         );

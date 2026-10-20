@@ -24,6 +24,7 @@ import type {
   PublicSeat,
   RoomRecord,
   RoomSize,
+  SeatConfigureMode,
   SeatCredential,
   SeatRecord,
 } from "./types";
@@ -61,6 +62,7 @@ function emptySeats(): SeatRecord[] {
     isHost: false,
     connected: false,
     lastSeenAt: null,
+    closed: false,
   }));
 }
 
@@ -73,6 +75,7 @@ export function toPublicSeat(seat: SeatRecord): PublicSeat {
     kind: seat.kind,
     isHost: seat.isHost,
     connected: seat.connected,
+    closed: seat.closed,
   };
 }
 
@@ -88,7 +91,7 @@ export function toPublicRoom(record: RoomRecord): PublicRoom {
     quickMode: record.quickMode,
     seats: seats.map(toPublicSeat),
     occupiedCount,
-    canJoin: record.status === "waiting" && seats.some((s) => !s.occupied),
+    canJoin: record.status === "waiting" && seats.some((s) => !s.occupied && !s.closed),
   };
 }
 
@@ -217,7 +220,9 @@ export async function joinRoom(
       );
     }
     const enabled = enabledSeatIndexes(record.roomSize);
-    const seat = record.seats.find((s) => enabled.includes(s.seatIndex) && !s.occupied);
+    const seat = record.seats.find(
+      (s) => enabled.includes(s.seatIndex) && !s.occupied && !s.closed,
+    );
     if (!seat) {
       throw new RoomServiceError("ROOM_FULL", "This room is full.");
     }
@@ -328,6 +333,78 @@ export async function leaveRoom(
     if (!stillHasHost) {
       const nextHost = record.seats.find((s) => s.occupied);
       if (nextHost) nextHost.isHost = true;
+    }
+
+    record.roomVersion += 1;
+    await save(record);
+    return record;
+  });
+}
+
+/**
+ * Host-only, lobby-only control over a seat that isn't held by a real
+ * person: fill it with a bot, close it off (stop waiting for an invited
+ * player), or reopen it to new joins. Deliberately refuses to touch a
+ * "local" or "remote" seat — kicking an already-joined player is a
+ * separate concern (self-service `leaveRoom` in the lobby, or
+ * `removePlayerFromMatch` once the game is in progress).
+ */
+export async function configureSeat(
+  roomId: string,
+  requesterSeatIndex: number,
+  targetSeatIndex: number,
+  mode: SeatConfigureMode,
+): Promise<RoomRecord> {
+  return roomMutex.run(roomId, async () => {
+    const record = await getOrLoadRoom(roomId);
+    if (!record) {
+      throw new RoomServiceError("ROOM_NOT_FOUND", "This room does not exist.");
+    }
+    const requester = record.seats.find((s) => s.seatIndex === requesterSeatIndex);
+    if (!requester?.isHost) {
+      throw new RoomServiceError("NOT_HOST", "Only the host can configure seats.");
+    }
+    if (record.status !== "waiting") {
+      throw new RoomServiceError(
+        "ROOM_NOT_JOINABLE",
+        "Seats can only be configured before the match starts.",
+      );
+    }
+    const enabled = enabledSeatIndexes(record.roomSize);
+    if (!enabled.includes(targetSeatIndex)) {
+      throw new RoomServiceError("VALIDATION_ERROR", "That seat isn't part of this match.");
+    }
+    const seat = record.seats.find((s) => s.seatIndex === targetSeatIndex);
+    if (!seat) {
+      throw new RoomServiceError("VALIDATION_ERROR", "That seat doesn't exist.");
+    }
+    if (seat.kind === "local" || seat.kind === "remote") {
+      throw new RoomServiceError(
+        "VALIDATION_ERROR",
+        "That seat is held by a player — remove them from the lobby first.",
+      );
+    }
+
+    if (mode === "bot") {
+      seat.occupied = true;
+      seat.displayName = botDisplayName(seat.color);
+      seat.kind = "bot";
+      seat.deviceGroupId = null;
+      seat.seatTokenHash = null;
+      seat.isHost = false;
+      seat.connected = true;
+      seat.lastSeenAt = new Date();
+      seat.closed = false;
+    } else {
+      seat.occupied = false;
+      seat.displayName = null;
+      seat.kind = null;
+      seat.deviceGroupId = null;
+      seat.seatTokenHash = null;
+      seat.isHost = false;
+      seat.connected = false;
+      seat.lastSeenAt = null;
+      seat.closed = mode === "empty";
     }
 
     record.roomVersion += 1;

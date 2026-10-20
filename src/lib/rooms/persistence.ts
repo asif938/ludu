@@ -43,6 +43,7 @@ export async function loadRoomFromDb(roomId: string): Promise<RoomRecord | null>
     isHost: s.isHost ?? false,
     connected: s.connected ?? false,
     lastSeenAt: s.lastSeenAt ?? null,
+    closed: s.closed ?? false,
   }));
 
   return {

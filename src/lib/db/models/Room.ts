@@ -12,6 +12,7 @@ const SeatSchema = new Schema(
     isHost: { type: Boolean, default: false },
     connected: { type: Boolean, default: false },
     lastSeenAt: { type: Date, default: null },
+    closed: { type: Boolean, default: false },
   },
   { _id: false },
 );

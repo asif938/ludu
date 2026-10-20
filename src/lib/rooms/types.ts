@@ -18,6 +18,12 @@ export interface SeatRecord {
   isHost: boolean;
   connected: boolean;
   lastSeenAt: Date | null;
+  /**
+   * Host decided to leave this unoccupied seat empty rather than wait for
+   * an invited player — it's excluded from new joins until the host either
+   * fills it with a bot or reopens it. Meaningless once `occupied` is true.
+   */
+  closed: boolean;
 }
 
 export interface RoomRecord {
@@ -44,7 +50,12 @@ export interface PublicSeat {
   kind: SeatKind | null;
   isHost: boolean;
   connected: boolean;
+  closed: boolean;
 }
+
+/** The three ways a host can configure a currently-unoccupied seat before
+ * starting: fill it with a bot, close it off, or leave it open to join. */
+export type SeatConfigureMode = "bot" | "empty" | "waiting";
 
 export interface PublicRoom {
   roomId: string;

@@ -1,5 +1,5 @@
 import type { GameEvent, GameState } from "@/lib/game/types";
-import type { PublicSeat } from "@/lib/rooms/types";
+import type { PublicSeat, SeatConfigureMode } from "@/lib/rooms/types";
 
 /** Shared Socket.IO event name constants + payload types, used by both the
  * server (server/socket) and the client (src/hooks). Keeping these in one
@@ -14,6 +14,7 @@ export const ClientEvents = {
   Move: "game:move",
   RequestState: "game:request-state",
   RemovePlayer: "game:remove-player",
+  ConfigureSeat: "room:configure-seat",
 } as const;
 
 export const ServerEvents = {
@@ -50,6 +51,12 @@ export interface MovePayload {
 export interface RemovePlayerPayload {
   roomId: string;
   targetSeatIndex: number;
+}
+
+export interface ConfigureSeatPayload {
+  roomId: string;
+  targetSeatIndex: number;
+  mode: SeatConfigureMode;
 }
 
 export interface RoomUpdatedPayload {

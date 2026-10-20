@@ -20,6 +20,7 @@ export function RoomStage({ roomId }: { roomId: string }) {
     move,
     leave,
     removePlayer,
+    configureSeat,
     clearError,
   } = useRoomSocket(roomId);
 
@@ -60,7 +61,15 @@ export function RoomStage({ roomId }: { roomId: string }) {
   }
 
   if (room.status === "waiting" || !gameState) {
-    return <Lobby room={room} mySeatIndexes={mySeatIndexes} onStart={start} onLeave={leave} />;
+    return (
+      <Lobby
+        room={room}
+        mySeatIndexes={mySeatIndexes}
+        onStart={start}
+        onLeave={leave}
+        onConfigureSeat={configureSeat}
+      />
+    );
   }
 
   return (

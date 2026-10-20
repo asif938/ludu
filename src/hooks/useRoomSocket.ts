@@ -11,6 +11,7 @@ import type {
   TokenMovedPayload,
 } from "@/lib/socket/events";
 import type { GameState } from "@/lib/game/types";
+import type { SeatConfigureMode } from "@/lib/rooms/types";
 import { loadRoomCredentials } from "@/lib/device/session";
 
 export type ConnectionState = "idle" | "connecting" | "connected" | "disconnected";
@@ -30,6 +31,7 @@ export interface UseRoomSocketResult {
   leave: () => void;
   requestState: () => void;
   removePlayer: (targetSeatIndex: number) => void;
+  configureSeat: (targetSeatIndex: number, mode: SeatConfigureMode) => void;
   clearError: () => void;
 }
 
@@ -139,6 +141,13 @@ export function useRoomSocket(roomId: string): UseRoomSocketResult {
     [roomId],
   );
 
+  const configureSeat = useCallback(
+    (targetSeatIndex: number, mode: SeatConfigureMode) => {
+      socketRef.current?.emit(ClientEvents.ConfigureSeat, { roomId, targetSeatIndex, mode });
+    },
+    [roomId],
+  );
+
   const clearError = useCallback(() => setLastError(null), []);
 
   return {
@@ -156,6 +165,7 @@ export function useRoomSocket(roomId: string): UseRoomSocketResult {
     leave,
     requestState,
     removePlayer,
+    configureSeat,
     clearError,
   };
 }
